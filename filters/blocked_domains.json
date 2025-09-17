@@ -1,0 +1,26 @@
+{
+  "domains": [
+    "youtube.com",
+    "facebook.com",
+    "twitter.com",
+    "instagram.com",
+    "pinterest.com",
+    "linkedin.com",
+    "www.linkedin.com",
+    "reddit.com",
+    "quora.com",
+    "stackoverflow.com",
+    "amazon.com",
+    "ebay.com",
+    "aliexpress.com"
+  ],
+  "patterns": [
+    "/comments/",
+    "/reviews/",
+    "/login",
+    "/signup",
+    "/forum/",
+    "/gallery/",
+    "/video/"
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "content_type": "prompt_collection",
+  "topics_file": "topics_basic_articles.txt",
+  "total_topics": 4,
+  "completed_topics": [],
+  "failed_topics": [
+    "Skeleton-of-Thought (SoT) prompting technique guide, template, best practices"
+  ],
+  "current_topic": null,
+  "start_time": "2025-09-17T17:06:36.373332",
+  "last_update_time": "2025-09-17T17:07:36.839597",
+  "topic_statuses": {
+    "Skeleton-of-Thought (SoT) prompting technique guide, template, best practices": {
+      "topic": "Skeleton-of-Thought (SoT) prompting technique guide, template, best practices",
+      "status": "failed",
+      "start_time": "2025-09-17T17:07:36.807729",
+      "end_time": "2025-09-17T17:07:36.807861",
+      "attempts": 2,
+      "error_message": "cannot import name 'main_flow' from 'main' (/Users/skynet/Desktop/AI DEV/Content-factory/main.py)",
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Least-to-Most prompting technique guide, template, best practices": {
+      "topic": "Least-to-Most prompting technique guide, template, best practices",
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "attempts": 0,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Plan-and-Solve prompting technique guide, template, best practices": {
+      "topic": "Plan-and-Solve prompting technique guide, template, best practices",
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "attempts": 0,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Self-Consistency prompting technique guide, template, best practices": {
+      "topic": "Self-Consistency prompting technique guide, template, best practices",
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "attempts": 0,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    }
+  }
+}

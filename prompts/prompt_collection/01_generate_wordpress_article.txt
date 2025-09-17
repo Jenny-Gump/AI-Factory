@@ -1,0 +1,2 @@
+# Placeholder for prompt_collection generation prompts
+# TODO: Add specific prompts for this content type

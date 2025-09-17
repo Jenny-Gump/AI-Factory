@@ -1,0 +1,4 @@
+Skeleton-of-Thought (SoT) prompting technique guide, template, best practices
+Least-to-Most prompting technique guide, template, best practices
+Plan-and-Solve prompting technique guide, template, best practices
+Self-Consistency prompting technique guide, template, best practices
