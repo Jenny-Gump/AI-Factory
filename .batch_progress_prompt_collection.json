@@ -3,12 +3,13 @@
   "topics_file": "topics_basic_articles.txt",
   "total_topics": 3,
   "completed_topics": [
-    "Least-to-Most prompting technique guide, template, best practices"
+    "Least-to-Most prompting technique guide, template, best practices",
+    "Plan-and-Solve prompting technique guide, template, best practices"
   ],
   "failed_topics": [],
   "current_topic": null,
   "start_time": "2025-09-17T19:03:01.835248",
-  "last_update_time": "2025-09-17T19:08:29.288294",
+  "last_update_time": "2025-09-17T19:14:52.146970",
   "topic_statuses": {
     "Least-to-Most prompting technique guide, template, best practices": {
       "topic": "Least-to-Most prompting technique guide, template, best practices",
@@ -22,10 +23,10 @@
     },
     "Plan-and-Solve prompting technique guide, template, best practices": {
       "topic": "Plan-and-Solve prompting technique guide, template, best practices",
-      "status": "pending",
-      "start_time": null,
-      "end_time": null,
-      "attempts": 0,
+      "status": "completed",
+      "start_time": "2025-09-17T19:08:34.291352",
+      "end_time": "2025-09-17T19:14:52.109610",
+      "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
       "wordpress_url": null

@@ -17,6 +17,12 @@ load_dotenv()
 # Словарь для кэширования клиентов
 _clients_cache = {}
 
+def clear_llm_clients_cache():
+    """Очищает кэш LLM клиентов для освобождения памяти."""
+    global _clients_cache
+    _clients_cache.clear()
+    logger.info("LLM clients cache cleared")
+
 def get_llm_client(model_name: str) -> openai.OpenAI:
     """Get appropriate LLM client for the given model."""
     provider = get_provider_for_model(model_name)

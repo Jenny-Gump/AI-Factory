@@ -293,14 +293,24 @@ class BatchProcessor:
             logger.info(f"Garbage collection: {collected} objects collected")
         
         if MEMORY_CLEANUP["clear_llm_caches"]:
-            # Очистка кэшей LLM клиентов (если есть)
-            # TODO: Добавить очистку специфичных кэшей когда они появятся
-            pass
+            # Очистка кэшей LLM клиентов
+            try:
+                from src.llm_processing import clear_llm_clients_cache
+                clear_llm_clients_cache()
+            except Exception as e:
+                logger.warning(f"Failed to clear LLM cache: {e}")
         
+        if MEMORY_CLEANUP["close_http_connections"]:
+            # Принудительная очистка HTTP соединений через garbage collection
+            # aiohttp соединения обычно самоочищаются, но принудительный GC помогает
+            logger.info("Forcing cleanup of HTTP connections...")
+            collected_http = gc.collect()
+            logger.info(f"HTTP connections cleanup: {collected_http} objects collected")
+
         if MEMORY_CLEANUP["reset_token_tracker"]:
-            # Сброс token tracker между темами
-            # TODO: Реализовать если понадобится
-            pass
+            # TokenTracker создается заново для каждой темы в main.py,
+            # поэтому автоматически очищается. Принудительной очистки не требуется.
+            logger.info("TokenTracker is automatically reset per topic")
         
         # Проверяем результат очистки
         memory_info = self.process.memory_info()

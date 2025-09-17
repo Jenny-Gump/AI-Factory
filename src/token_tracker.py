@@ -19,13 +19,21 @@ class TokenTracker:
     def __init__(self, topic: str = ""):
         """
         Initialize token tracker for a pipeline session.
-        
+
         Args:
             topic: The topic being processed in this session
         """
         self.topic = topic
         self.session_tokens: List[Dict[str, Any]] = []
         self.session_start = datetime.now()
+
+    def reset(self):
+        """
+        Reset token tracker for memory cleanup between topics.
+        """
+        self.session_tokens.clear()
+        self.session_start = datetime.now()
+        logger.info(f"Token tracker reset for topic: {self.topic}")
     
     def add_usage(self, 
                   stage: str, 

@@ -7,7 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Enhanced Memory Management System** (Sept 17, 2025)
+  - **LLM Clients Cache Cleanup**: Added `clear_llm_clients_cache()` function to free accumulated OpenAI client objects
+  - **HTTP Connections Cleanup**: Implemented forced garbage collection for aiohttp connections cleanup
+  - **Token Tracker Reset**: Automatic reset between topics (already working, documented the behavior)
+  - **Comprehensive Memory Monitoring**: Enhanced logging for all memory cleanup operations
+  - **Configuration**: All cleanup options configurable via `MEMORY_CLEANUP` settings in `batch_config.py`
+  - **Impact**: Prevents memory accumulation during long batch processing sessions
+
 ### Fixed
+- **Batch Processor Timeout Hangs** (Sept 17, 2025)
+  - **Problem**: 30-minute timeout was causing batch processor to hang and stop processing topics
+  - **Root Cause**: `asyncio.wait_for()` with 1800-second timeout was forcibly terminating valid long-running operations
+  - **Solution**: Removed artificial timeout constraints from batch processing
+  - **Files Changed**:
+    - `batch_processor.py`: Removed `asyncio.wait_for()` timeout wrapper
+    - `batch_config.py`: Removed timeout-related configuration options
+  - **Impact**: System now processes topics naturally without artificial time constraints
+  - **Note**: HTTP and LLM timeouts are preserved for network reliability
 - **WordPress Article Generation Unicode Issue** (Sept 17, 2025)
   - **Problem**: LLM received garbled Unicode escape sequences instead of readable Russian text in article structure
   - **Root Cause**: `json.dumps()` without `ensure_ascii=False` was double-escaping Cyrillic characters
