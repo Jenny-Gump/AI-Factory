@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **WordPress Article Generation Unicode Issue** (Sept 17, 2025)
+  - **Problem**: LLM received garbled Unicode escape sequences instead of readable Russian text in article structure
+  - **Root Cause**: `json.dumps()` without `ensure_ascii=False` was double-escaping Cyrillic characters
+  - **Solution**: Added `ensure_ascii=False` parameter to `json.dumps()` in article generation
+  - **Impact**: Article structure now passes to LLM as clean, readable Russian text
+  - **Technical Details**:
+    - Fixed `generate_wordpress_article()` function in `src/llm_processing.py:392`
+    - Changed from `json.dumps(prompts, indent=2)` to `json.dumps(prompts, indent=2, ensure_ascii=False)`
+    - Russian text like "Введение в технику" now stays readable instead of becoming `\u0412\u0432\u0435...`
+    - Confirmed with isolated testing using real pipeline data
+
 - **Editorial Review JSON Parsing Issue** (Sept 17, 2025)
   - **Problem**: Editorial review stage was receiving truncated LLM responses, causing JSON parsing failures
   - **Root Cause**: Missing `response_format={"type": "json_object"}` parameter in editorial_review function

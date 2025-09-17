@@ -7,31 +7,24 @@ import os
 
 # Основные настройки батч-процессора
 BATCH_CONFIG = {
-    # Таймауты
-    "max_topic_timeout": 1800,  # 30 минут на одну тему максимум
-    "wordpress_verification_timeout": 120,  # 2 минуты ожидания публикации
-    "memory_check_interval": 300,  # Проверка памяти каждые 5 минут
-    
     # Лимиты ресурсов
     "max_memory_mb": 2048,  # Максимальное использование памяти
     "max_concurrent_requests": 5,  # Максимум одновременных HTTP запросов
-    
+
     # Retry политика
     "retry_failed_topics": 2,  # Количество повторов для неудачных тем
     "retry_delay_seconds": 60,  # Задержка между повторами
-    
+
     # Безопасность и надежность
     "autosave_interval": 300,  # Автосохранение каждые 5 минут
     "enable_memory_monitoring": True,  # Мониторинг памяти
-    "graceful_shutdown_timeout": 30,  # Время на graceful shutdown
-    
+
     # Логирование
     "detailed_progress_logging": True,  # Детальное логирование прогресса
     "save_failed_topics_log": True,  # Сохранять лог неудачных тем
-    
+
     # WordPress проверки
     "verify_publication_before_next": True,  # Обязательная проверка публикации
-    "wordpress_api_timeout": 30,  # Таймаут для WordPress API
 }
 
 # Типы контента с их настройками

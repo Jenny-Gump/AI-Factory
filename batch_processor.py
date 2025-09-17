@@ -219,10 +219,10 @@ class BatchProcessor:
             )
             
             try:
-                await asyncio.wait_for(pipeline_task, timeout=BATCH_CONFIG["max_topic_timeout"])
-            except asyncio.TimeoutError:
-                logger.error(f"⏰ Topic '{topic}' timed out after {BATCH_CONFIG['max_topic_timeout']} seconds")
-                raise TopicProcessingError(f"Processing timeout for topic: {topic}")
+                await pipeline_task
+            except Exception as e:
+                logger.error(f"❌ Pipeline failed for topic '{topic}': {e}")
+                raise TopicProcessingError(f"Pipeline error for topic: {topic} - {e}")
             
             # 2. Успешное завершение - прямолинейная логика без проверок
             topic_status.status = 'completed'
@@ -259,7 +259,7 @@ class BatchProcessor:
             return
         
         current_time = time.time()
-        if current_time - self.last_memory_check < BATCH_CONFIG["memory_check_interval"]:
+        if current_time - self.last_memory_check < 300:  # 5 минут
             return
         
         self.last_memory_check = current_time

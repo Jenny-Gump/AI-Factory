@@ -280,6 +280,7 @@ def _make_llm_request_with_retry(stage_name: str, model_name: str, messages: lis
                 response_obj = client.chat.completions.create(
                     model=current_model,
                     messages=messages,
+                    timeout=90,
                     **kwargs
                 )
 
@@ -346,7 +347,6 @@ def extract_prompts_from_article(article_text: str, topic: str, base_path: str =
             messages=messages,
             token_tracker=token_tracker,
             temperature=0.3,
-            timeout=90
         )
         content = response.choices[0].message.content
         
@@ -389,7 +389,7 @@ def generate_wordpress_article(prompts: List[Dict], topic: str, base_path: str =
         messages = _load_and_prepare_messages(
             "basic_articles",
             "01_generate_wordpress_article",
-            {"topic": topic, "article_text": json.dumps(prompts, indent=2)}
+            {"topic": topic, "article_text": json.dumps(prompts, indent=2, ensure_ascii=False)}
         )
 
         # Use new retry system
