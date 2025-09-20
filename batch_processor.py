@@ -71,8 +71,8 @@ class MemoryLimitError(BatchProcessorError):
 class BatchProcessor:
     """Класс для последовательной обработки списка тем"""
     
-    def __init__(self, topics_file: str, content_type: str = "prompt_collection", 
-                 model_overrides: Dict = None, resume: bool = False, 
+    def __init__(self, topics_file: str, content_type: str = "basic_articles",
+                 model_overrides: Dict = None, resume: bool = False,
                  skip_publication: bool = False):
         
         # Валидация параметров
@@ -524,7 +524,7 @@ class BatchProcessor:
 
 
 # Функция для использования из командной строки
-async def run_batch_processor(topics_file: str, content_type: str = "prompt_collection",
+async def run_batch_processor(topics_file: str, content_type: str = "basic_articles",
                              model_overrides: Dict = None, resume: bool = False,
                              skip_publication: bool = False) -> bool:
     """
@@ -548,7 +548,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Batch processor for Content Generator")
     parser.add_argument("topics_file", help="Path to file with topics (one per line)")
-    parser.add_argument("--content-type", default="prompt_collection", 
+    parser.add_argument("--content-type", default="basic_articles",
                        choices=list(CONTENT_TYPES.keys()), help="Content type")
     parser.add_argument("--resume", action="store_true", help="Resume previous batch")
     parser.add_argument("--skip-publication", action="store_true", help="Skip WordPress publication")

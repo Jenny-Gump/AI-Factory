@@ -14,8 +14,6 @@ from src.processing import (
 )
 from src.llm_processing import (
     extract_prompts_from_article,
-    # extract_prompts_from_article_async,  # REMOVED: using sync version only
-    # generate_wordpress_article,  # DEPRECATED: using section-by-section generation instead
     generate_article_by_sections,  # NEW: for section-by-section generation
     editorial_review,
     _load_and_prepare_messages,

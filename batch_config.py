@@ -29,34 +29,6 @@ BATCH_CONFIG = {
 
 # Типы контента с их настройками
 CONTENT_TYPES = {
-    "prompt_collection": {
-        "prompts_folder": "prompts/prompt_collection",
-        "description": "Articles about AI prompts and prompt engineering",
-        "default_topics_file": "topics_prompts.txt",
-        "output_prefix": "prompts_",
-        "wordpress_category": "prompts"
-    },
-    "business_ideas": {
-        "prompts_folder": "prompts/business_ideas",
-        "description": "Business ideas and entrepreneurship content",
-        "default_topics_file": "topics_business_ideas.txt", 
-        "output_prefix": "business_",
-        "wordpress_category": "business"
-    },
-    "marketing_content": {
-        "prompts_folder": "prompts/marketing_content",
-        "description": "Marketing and advertising content",
-        "default_topics_file": "topics_marketing.txt",
-        "output_prefix": "marketing_",
-        "wordpress_category": "marketing"
-    },
-    "educational_content": {
-        "prompts_folder": "prompts/educational_content",
-        "description": "Educational and tutorial content",
-        "default_topics_file": "topics_educational.txt",
-        "output_prefix": "edu_",
-        "wordpress_category": "education"
-    },
     "basic_articles": {
         "prompts_folder": "prompts/basic_articles",
         "description": "Basic informational articles with FAQ and sources",

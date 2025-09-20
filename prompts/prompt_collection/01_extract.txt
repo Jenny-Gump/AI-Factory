@@ -1,2 +1,0 @@
-# Placeholder for prompt_collection extraction prompts
-# TODO: Add specific prompts for this content type
