@@ -134,12 +134,28 @@ def _parse_json_from_response(response_content: str) -> Any:
             return []
     except json.JSONDecodeError as e:
         logger.warning(f"Standard JSON parsing failed: {e}")
+
+        # СОХРАНЕНИЕ ПОВРЕЖДЕННОГО JSON будет в папке этапа при вызове из функций с base_path
+        logger.error(f"JSON parsing failed: {e} - Response length: {len(response_content)}")
+
         pass
     
     # Attempt 1.5: Enhanced JSON preprocessing (for editorial review control characters)
     try:
         logger.info("Attempting enhanced JSON parsing...")
         fixed_content = response_content
+
+        # Fix DeepSeek model specific JSON bugs
+        fixed_content = re.sub(r'"context_after: "', r'"context_after": "', fixed_content)
+        fixed_content = re.sub(r'"context_before: "', r'"context_before": "', fixed_content)
+        fixed_content = re.sub(r'"anchor_text: "', r'"anchor_text": "', fixed_content)
+        fixed_content = re.sub(r'"query: "', r'"query": "', fixed_content)
+        fixed_content = re.sub(r'"hint: "', r'"hint": "', fixed_content)
+        fixed_content = re.sub(r'"section: "', r'"section": "', fixed_content)
+        fixed_content = re.sub(r'"ref_id: "', r'"ref_id": "', fixed_content)
+
+        # Generic fix for missing colons in JSON keys
+        fixed_content = re.sub(r'"([^"]+): (["\[\{])', r'"\1": \2', fixed_content)
         
         # Remove code block wrappers if present
         if fixed_content.startswith('```json\n') and fixed_content.endswith('\n```'):
@@ -191,6 +207,10 @@ def _parse_json_from_response(response_content: str) -> Any:
             return []
     except json.JSONDecodeError as e:
         logger.warning(f"Enhanced JSON parsing failed: {e}")
+
+        # СОХРАНЕНИЕ ПОВРЕЖДЕННОГО JSON будет в папке этапа при вызове из функций с base_path
+        logger.error(f"Enhanced JSON parsing failed: {e} - Response length: {len(response_content)}")
+
         pass
     
     # Attempt 2: If it looks like a single object, wrap it in an array
@@ -279,7 +299,8 @@ def _load_and_prepare_messages(article_type: str, prompt_name: str, replacements
 
 
 async def _make_llm_request_with_timeout(stage_name: str, model_name: str, messages: list,
-                                        token_tracker: TokenTracker = None, timeout: int = MODEL_TIMEOUT, **kwargs) -> tuple:
+                                        token_tracker: TokenTracker = None, timeout: int = MODEL_TIMEOUT,
+                                        base_path: str = None, **kwargs) -> tuple:
     """
     Makes LLM request with timeout and immediate fallback on timeout.
 
@@ -303,7 +324,7 @@ async def _make_llm_request_with_timeout(stage_name: str, model_name: str, messa
         try:
             # Make request with timeout
             def make_request():
-                return _make_llm_request_with_retry_sync(stage_name, current_model, messages, token_tracker, **kwargs)
+                return _make_llm_request_with_retry_sync(stage_name, current_model, messages, token_tracker, base_path, **kwargs)
 
             loop = asyncio.get_event_loop()
             response_obj, actual_model = await asyncio.wait_for(
@@ -336,7 +357,7 @@ async def _make_llm_request_with_timeout(stage_name: str, model_name: str, messa
 
 
 def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages: list,
-                                token_tracker: TokenTracker = None, **kwargs) -> tuple:
+                                token_tracker: TokenTracker = None, base_path: str = None, **kwargs) -> tuple:
     """
     Synchronous version of LLM request with retry logic (no timeout handling).
     Used by async timeout wrapper.
@@ -354,9 +375,34 @@ def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages
                 **kwargs
             )
 
+            # СОХРАНЕНИЕ СЫРОГО ОТВЕТА В ПАПКЕ ЭТАПА
+            raw_response_content = response_obj.choices[0].message.content
+
+            # Сохраняем сырой ответ в папку этапа если base_path передан
+            if base_path:
+                try:
+                    responses_dir = os.path.join(base_path, "llm_responses_raw")
+                    os.makedirs(responses_dir, exist_ok=True)
+
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    response_file = os.path.join(responses_dir, f"{stage_name}_response_attempt{attempt+1}_{timestamp}.txt")
+
+                    with open(response_file, 'w', encoding='utf-8') as f:
+                        f.write(f"TIMESTAMP: {datetime.now().isoformat()}\n")
+                        f.write(f"MODEL: {model_name}\n")
+                        f.write(f"STAGE: {stage_name}\n")
+                        f.write(f"ATTEMPT: {attempt + 1}\n")
+                        f.write(f"RESPONSE_LENGTH: {len(raw_response_content)}\n")
+                        f.write(f"SUCCESS: True\n")
+                        f.write("=" * 80 + "\n")
+                        f.write(raw_response_content)
+                    logger.info(f"💾 RAW RESPONSE SAVED: {response_file}")
+                except Exception as save_error:
+                    logger.error(f"❌ Failed to save raw response: {save_error}")
+
             # Диагностика ответа API
             finish_reason = response_obj.choices[0].finish_reason
-            content_length = len(response_obj.choices[0].message.content)
+            content_length = len(raw_response_content)
             logger.info(f"🔍 API Response Debug:")
             logger.info(f"   finish_reason: {finish_reason}")
             logger.info(f"   content_length: {content_length}")
@@ -385,6 +431,30 @@ def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages
         except Exception as e:
             logger.warning(f"❌ Model {model_name} failed (attempt {attempt + 1}): {e}")
 
+            # СОХРАНЕНИЕ ОШИБОЧНОГО ОТВЕТА В ПАПКЕ ЭТАПА (если ответ получен, но с ошибкой парсинга)
+            if base_path and "response_obj" in locals() and hasattr(response_obj, 'choices') and response_obj.choices:
+                try:
+                    error_response_content = response_obj.choices[0].message.content
+                    responses_dir = os.path.join(base_path, "llm_responses_raw")
+                    os.makedirs(responses_dir, exist_ok=True)
+
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    error_file = os.path.join(responses_dir, f"ERROR_{stage_name}_response_attempt{attempt+1}_{timestamp}.txt")
+
+                    with open(error_file, 'w', encoding='utf-8') as f:
+                        f.write(f"TIMESTAMP: {datetime.now().isoformat()}\n")
+                        f.write(f"MODEL: {model_name}\n")
+                        f.write(f"STAGE: {stage_name}\n")
+                        f.write(f"ATTEMPT: {attempt + 1}\n")
+                        f.write(f"ERROR: {str(e)}\n")
+                        f.write(f"RESPONSE_LENGTH: {len(error_response_content)}\n")
+                        f.write(f"SUCCESS: False\n")
+                        f.write("=" * 80 + "\n")
+                        f.write(error_response_content)
+                    logger.error(f"💾 ERROR RESPONSE SAVED: {error_file}")
+                except Exception as save_error:
+                    logger.error(f"❌ Failed to save error response: {save_error}")
+
             # If not the last attempt, wait before retrying
             if attempt < RETRY_CONFIG["max_attempts"] - 1:
                 delay = RETRY_CONFIG["delays"][attempt]
@@ -398,7 +468,7 @@ def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages
 
 
 def _make_llm_request_with_retry(stage_name: str, model_name: str, messages: list,
-                                token_tracker: TokenTracker = None, **kwargs) -> tuple:
+                                token_tracker: TokenTracker = None, base_path: str = None, **kwargs) -> tuple:
     """
     Legacy wrapper for backward compatibility. Uses the old sync retry logic.
     """
@@ -417,7 +487,7 @@ def _make_llm_request_with_retry(stage_name: str, model_name: str, messages: lis
         logger.info(f"🤖 Using {model_label} model for {stage_name}: {current_model}")
 
         try:
-            return _make_llm_request_with_retry_sync(stage_name, current_model, messages, token_tracker, **kwargs)
+            return _make_llm_request_with_retry_sync(stage_name, current_model, messages, token_tracker, base_path, **kwargs)
         except Exception as e:
             logger.warning(f"❌ Model {current_model} failed ({model_label}): {e}")
             if model_index == len(models_to_try) - 1:  # Last model
@@ -455,6 +525,7 @@ def extract_prompts_from_article(article_text: str, topic: str, base_path: str =
             model_name=model_name,
             messages=messages,
             token_tracker=token_tracker,
+            base_path=base_path,
             temperature=0.3,
         )
         content = response.choices[0].message.content
@@ -493,6 +564,12 @@ async def _generate_single_section_async(section: Dict, idx: int, topic: str,
     section_num = f"section_{idx}"
     section_title = section.get('section_title', f'Section {idx}')
 
+    # Prepare section path first
+    section_path = None
+    if sections_path:
+        section_path = os.path.join(sections_path, section_num)
+        os.makedirs(section_path, exist_ok=True)
+
     # Wait for HTTP request timing - each section waits (idx-1)*5 seconds
     if idx > 1:
         http_delay = (idx - 1) * 5
@@ -522,6 +599,7 @@ async def _generate_single_section_async(section: Dict, idx: int, topic: str,
                 messages=messages,
                 token_tracker=token_tracker,
                 timeout=MODEL_TIMEOUT,
+                base_path=section_path,
                 temperature=0.3
             )
 
@@ -537,9 +615,7 @@ async def _generate_single_section_async(section: Dict, idx: int, topic: str,
                     raise Exception("All attempts returned insufficient content")
 
             # Save section interaction
-            if sections_path:
-                section_path = os.path.join(sections_path, section_num)
-                os.makedirs(section_path, exist_ok=True)
+            if section_path:
 
                 save_llm_interaction(
                     base_path=section_path,
@@ -636,6 +712,12 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
         section_num = f"section_{idx}"
         section_title = section.get('section_title', f'Section {idx}')
 
+        # Prepare section path first
+        section_path = None
+        if sections_path:
+            section_path = os.path.join(sections_path, section_num)
+            os.makedirs(section_path, exist_ok=True)
+
         logger.info(f"📝 Generating section {idx}/{total_sections}: {section_title}")
 
         for attempt in range(1, SECTION_MAX_RETRIES + 1):
@@ -659,6 +741,7 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                     model_name=model_name or LLM_MODELS.get("generate_article", DEFAULT_MODEL),
                     messages=messages,
                     token_tracker=token_tracker,
+                    base_path=section_path,
                     temperature=0.3
                 )
 
@@ -674,10 +757,7 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                         raise Exception("All attempts returned insufficient content")
 
                 # Save section interaction
-                if sections_path:
-                    section_path = os.path.join(sections_path, section_num)
-                    os.makedirs(section_path, exist_ok=True)
-
+                if section_path:
                     save_llm_interaction(
                         base_path=section_path,
                         stage_name="generate_section",
@@ -1176,6 +1256,7 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
             model_name=model_name,
             messages=messages,
             token_tracker=token_tracker,
+            base_path=base_path,
             temperature=0.2,  # Lower temperature for more consistent editing
             response_format={"type": "json_object"}  # Enforce JSON response
         )

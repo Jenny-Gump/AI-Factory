@@ -111,84 +111,148 @@ class LinkProcessor:
     def create_link_plan(self, html_content: str, topic: str, base_path: str,
                              token_tracker: TokenTracker, model_name: str) -> Tuple[List[Dict], str]:
         """
-        Step 1: Generate link plan with markers and search queries.
+        Step 1: Generate link plan with retries for JSON parsing errors.
 
         Returns:
             Tuple of (link_plan, draft_with_markers)
         """
-        try:
-            # Prepare HTML for LLM by marking problematic tags
-            prepared_html = self._prepare_html_for_llm(html_content)
+        # Prepare HTML for LLM by marking problematic tags
+        prepared_html = self._prepare_html_for_llm(html_content)
 
-            # Load and prepare LLM messages
-            messages = _load_and_prepare_messages(
-                "basic_articles",
-                "01_5_link_planning",
-                {"topic": topic, "html_content": prepared_html}
-            )
+        # Load and prepare LLM messages
+        messages = _load_and_prepare_messages(
+            "basic_articles",
+            "01_5_link_planning",
+            {"topic": topic, "html_content": prepared_html}
+        )
 
-            # Make LLM request
-            response_obj, actual_model = _make_llm_request_with_retry(
-                stage_name="link_planning",
-                model_name=model_name,
-                messages=messages,
-                token_tracker=token_tracker,
-                temperature=0.3,
-            )
-
-            content = response_obj.choices[0].message.content
-
-            # Save interaction
-            save_llm_interaction(
-                base_path=base_path,
-                stage_name="link_planning",
-                messages=messages,
-                response=content,
-                request_id="link_plan"
-            )
-
-            # Save raw response for debugging
-            self._save_artifact(content, base_path, 'llm_responses_raw/link_plan_response.txt')
-
-            # Parse JSON response with fallback
+        # RETRY LOGIC: 2 LLM attempts before fallback
+        content = None
+        for attempt in range(1, 3):  # 2 attempts
             try:
-                parsed_json = json.loads(content)
-            except json.JSONDecodeError as e:
-                logger.warning(f"Direct JSON parsing failed, trying enhanced parsing: {e}")
+                logger.info(f"Creating link plan - attempt {attempt}/2")
+
+                # Make LLM request
+                response_obj, actual_model = _make_llm_request_with_retry(
+                    stage_name="link_planning",
+                    model_name=model_name,
+                    messages=messages,
+                    token_tracker=token_tracker,
+                    base_path=base_path,
+                    temperature=0.3,
+                )
+
+                content = response_obj.choices[0].message.content
+
+                # Save interaction
+                save_llm_interaction(
+                    base_path=base_path,
+                    stage_name="link_planning",
+                    messages=messages,
+                    response=content,
+                    request_id=f"link_plan_attempt_{attempt}"
+                )
+
+                # Try to parse JSON with basic fixes
                 try:
-                    parsed_json = _parse_json_from_response(content)
-                except Exception as e2:
-                    logger.error(f"Enhanced JSON parsing also failed: {e2}")
-                    return [], html_content
+                    # Fix missing colons BEFORE parsing
+                    fixed_content = re.sub(r'"(context_after|context_before|anchor_text|query|hint|section): ', r'"\1": ', content)
+                    parsed_json = json.loads(fixed_content)
 
-            if not isinstance(parsed_json, dict):
-                logger.error("Invalid link plan JSON structure - not a dict")
-                return [], html_content
+                    # Validate structure
+                    if isinstance(parsed_json, dict) and 'link_plan' in parsed_json:
+                        link_plan = parsed_json['link_plan']
+                        if isinstance(link_plan, list) and len(link_plan) > 0:
+                            logger.info(f"✅ JSON parsed successfully on attempt {attempt}")
 
-            link_plan = parsed_json.get('link_plan', [])
+                            # Validate link_plan structure
+                            validated_plan = []
+                            for item in link_plan:
+                                required_fields = ['ref_id', 'anchor_text', 'context_after']
+                                if all(field in item and item[field] for field in required_fields):
+                                    validated_plan.append(item)
+                                else:
+                                    logger.warning(f"Skipping invalid plan item (missing fields): {item}")
 
-            if not isinstance(link_plan, list):
-                logger.error("Invalid link plan JSON structure - link_plan not a list")
-                return [], html_content
+                            if len(validated_plan) != len(link_plan):
+                                logger.warning(f"Filtered {len(link_plan) - len(validated_plan)} invalid items")
 
-            # Validate anchors before processing
-            validation_report = self._validate_anchors(html_content, link_plan)
-            self._save_artifact(validation_report, base_path, 'anchor_validation_report.json')
+                            link_plan = validated_plan
 
-            # Create markers using smart positioning based on anchor_text
-            draft_with_markers = self._insert_markers_with_smart_positioning(html_content, link_plan)
-            validated_link_plan = link_plan
+                            if len(link_plan) > 0:
+                                # Validate anchors and create artifacts
+                                validation_report = self._validate_anchors(html_content, link_plan)
+                                self._save_artifact(validation_report, base_path, 'anchor_validation_report.json')
 
-            # Save artifacts
-            self._save_artifact(validated_link_plan, base_path, 'link_plan.json')
-            self._save_artifact(draft_with_markers, base_path, 'draft_with_markers.html')
+                                draft_with_markers = self._insert_markers_with_smart_positioning(html_content, link_plan)
 
-            logger.info(f"Generated {len(validated_link_plan)} link queries with markers")
-            return validated_link_plan, draft_with_markers
+                                self._save_artifact(link_plan, base_path, 'link_plan.json')
+                                self._save_artifact(draft_with_markers, base_path, 'draft_with_markers.html')
 
-        except Exception as e:
-            logger.error(f"Failed to create link plan: {e}")
-            return [], html_content
+                                logger.info(f"Generated {len(link_plan)} link queries with markers")
+                                return link_plan, draft_with_markers
+                            else:
+                                logger.warning(f"No valid plan items after validation on attempt {attempt}")
+
+                    logger.warning(f"Invalid JSON structure on attempt {attempt}")
+
+                except json.JSONDecodeError as e:
+                    logger.warning(f"JSON parsing failed on attempt {attempt}: {e}")
+                    if attempt == 2:  # Last attempt
+                        logger.error("All LLM attempts failed, using enhanced fallback")
+                        break
+                    else:
+                        logger.info("Retrying LLM request...")
+                        continue
+
+            except Exception as e:
+                logger.error(f"LLM request failed on attempt {attempt}: {e}")
+                if attempt == 2:
+                    break
+
+        # FALLBACK: Enhanced JSON processing after LLM failures
+        if content:
+            logger.warning("Using enhanced JSON fallback processing")
+            try:
+                # Save raw response for debugging
+                self._save_artifact(content, base_path, 'llm_responses_raw/link_plan_response.txt')
+
+                parsed_json = _parse_json_from_response(content)
+                if isinstance(parsed_json, dict) and 'link_plan' in parsed_json:
+                    link_plan = parsed_json['link_plan']
+                    if isinstance(link_plan, list):
+                        logger.info("✅ Fallback JSON parsing successful")
+
+                        # Validate link_plan structure
+                        validated_plan = []
+                        for item in link_plan:
+                            required_fields = ['ref_id', 'anchor_text', 'context_after']
+                            if all(field in item and item[field] for field in required_fields):
+                                validated_plan.append(item)
+                            else:
+                                logger.warning(f"Skipping invalid plan item (missing fields): {item}")
+
+                        if len(validated_plan) != len(link_plan):
+                            logger.warning(f"Filtered {len(link_plan) - len(validated_plan)} invalid items")
+
+                        link_plan = validated_plan
+
+                        if len(link_plan) > 0:
+                            validation_report = self._validate_anchors(html_content, link_plan)
+                            self._save_artifact(validation_report, base_path, 'anchor_validation_report.json')
+
+                            draft_with_markers = self._insert_markers_with_smart_positioning(html_content, link_plan)
+
+                            self._save_artifact(link_plan, base_path, 'link_plan.json')
+                            self._save_artifact(draft_with_markers, base_path, 'draft_with_markers.html')
+
+                            return link_plan, draft_with_markers
+            except Exception as e:
+                logger.error(f"Fallback JSON parsing failed: {e}")
+
+        # Complete failure
+        logger.error("All JSON parsing attempts failed")
+        return [], html_content
 
     def _insert_markers_by_position(self, html_content: str, link_plan: List[Dict]) -> str:
         """
@@ -611,6 +675,7 @@ class LinkProcessor:
                 model_name=model_name,
                 messages=messages,
                 token_tracker=token_tracker,
+                base_path=base_path,
                 temperature=0.1,
             )
 
@@ -1011,8 +1076,6 @@ class LinkProcessor:
         Returns:
             Validation report with detailed information
         """
-        from bs4 import BeautifulSoup
-
         report = {
             "total_anchors": len(link_plan),
             "valid_anchors": 0,
@@ -1020,12 +1083,9 @@ class LinkProcessor:
             "validation_details": []
         }
 
-        # Create clean text version for searching
-        soup = BeautifulSoup(html_content, 'html.parser')
-        clean_text = soup.get_text()
-
-        # Normalize whitespace in clean text
-        clean_text_normalized = ' '.join(clean_text.split())
+        # Lazy initialization for BeautifulSoup fallback
+        clean_text_normalized = None
+        bs4_available = None
 
         for plan in link_plan:
             ref_id = plan.get('ref_id', 'unknown')
@@ -1052,16 +1112,40 @@ class LinkProcessor:
                 detail["position"] = html_content.find(anchor_text)
                 report["valid_anchors"] += 1
                 logger.debug(f"✅ Anchor [{ref_id}] found in HTML at position {detail['position']}")
-            # Then try normalized text match
-            elif anchor_normalized in clean_text_normalized:
-                detail["found"] = True
-                detail["position"] = clean_text_normalized.find(anchor_normalized)
-                report["valid_anchors"] += 1
-                logger.debug(f"✅ Anchor [{ref_id}] found in clean text (normalized)")
             else:
-                detail["issues"].append(f"anchor_text '{anchor_text}' not found in HTML or clean text")
-                report["invalid_anchors"] += 1
-                logger.warning(f"❌ Anchor [{ref_id}] validation failed: anchor_text not found")
+                # Try fallback with BeautifulSoup if available
+                if clean_text_normalized is None:
+                    # First time we need BS4 - try to initialize
+                    if bs4_available is None:
+                        try:
+                            from bs4 import BeautifulSoup
+                            bs4_available = True
+                            logger.debug("BeautifulSoup loaded for fallback validation")
+                        except ImportError:
+                            bs4_available = False
+                            logger.debug("BeautifulSoup not available - skipping fallback validation")
+
+                    if bs4_available:
+                        try:
+                            soup = BeautifulSoup(html_content, 'html.parser')
+                            clean_text = soup.get_text()
+                            clean_text_normalized = ' '.join(clean_text.split())
+                        except Exception as e:
+                            logger.warning(f"Failed to create normalized text with BeautifulSoup: {e}")
+                            clean_text_normalized = ""
+                    else:
+                        clean_text_normalized = ""
+
+                # Try normalized text match if we have it
+                if clean_text_normalized and anchor_normalized in clean_text_normalized:
+                    detail["found"] = True
+                    detail["position"] = clean_text_normalized.find(anchor_normalized)
+                    report["valid_anchors"] += 1
+                    logger.debug(f"✅ Anchor [{ref_id}] found in clean text (normalized) via BS4 fallback")
+                else:
+                    detail["issues"].append(f"anchor_text '{anchor_text}' not found in HTML or clean text")
+                    report["invalid_anchors"] += 1
+                    logger.warning(f"❌ Anchor [{ref_id}] validation failed: anchor_text not found")
 
             report["validation_details"].append(detail)
 
