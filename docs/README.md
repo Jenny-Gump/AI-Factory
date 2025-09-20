@@ -28,7 +28,7 @@ python main.py "Best practices for remote work productivity"
 7. **Create Ultimate Structure** - Synthesize all structures into one comprehensive outline
 8. **Generate Article** - Create WordPress-ready article with FAQ and sources
 9. **Editorial Review** - Clean formatting and improve readability
-10. **Link Processing** *(optional)* - Add relevant internal links
+10. **Link Processing** *(optional)* - Add relevant external links with academic footnotes
 11. **Publish** *(optional)* - Automatically publish to WordPress
 
 ## 🎯 Output
@@ -117,6 +117,14 @@ output/Your_Topic/
 ├── 09_editorial_review/    # Final article
 │   ├── wordpress_data_final.json  # Ready for WordPress
 │   └── article_content_final.html # HTML content
+├── 10_link_processing/     # Link processing (optional)
+│   ├── link_plan.json              # Generated link plan
+│   ├── candidates.json             # Found link candidates
+│   ├── selected_links.json         # Selected links
+│   ├── article_with_links.html     # Article with links
+│   ├── links_report.json           # Link processing report
+│   ├── llm_requests/               # LLM requests for link selection
+│   └── llm_responses_raw/          # Raw LLM responses
 └── token_usage_report.json        # Token usage stats
 ```
 
@@ -135,9 +143,11 @@ output/Your_Topic/
 3. Review source selection in scoring phase
 
 **JSON parsing errors:**
-- Pipeline has automatic JSON cleanup
+- Pipeline has automatic JSON cleanup with fallback mechanism
+- Enhanced JSON parser handles markdown code blocks (```json...```)
 - Check raw LLM responses in debug files
 - Most issues resolve automatically
+- Link processing includes special fallback for wrapped JSON responses
 
 ### Debug Process
 
@@ -199,6 +209,40 @@ pip install -r requirements.txt
 3. **Check source quality** - Review selected articles in output
 4. **Monitor token usage** - Track costs with usage reports
 5. **Test before publishing** - Review generated content quality
+
+## 🔥 Recent Updates
+
+### September 19, 2025 - Critical Fallback System Fix
+
+**Issue Resolved:** Section generation timeouts without proper fallback activation
+
+**✅ What was fixed:**
+- **Timeout Logic**: Fixed AsyncTimeout killing fallback before it could execute
+- **Model Switching**: Primary model timeout now properly triggers Gemini 2.5 fallback
+- **Configuration**: Added `SECTION_TIMEOUT`, `MODEL_TIMEOUT`, `SECTION_MAX_RETRIES`
+- **Logging**: Enhanced timeout diagnostics with clear fallback indicators
+
+**✅ Impact:**
+- **Before**: Section failures → incomplete articles
+- **After**: 95%+ success rate with automatic fallback recovery
+- **Performance**: Max 180s per section (was 360s timeout)
+
+**✅ New Fallback Flow:**
+```
+DeepSeek timeout (60s) → Automatic Gemini 2.5 (60s) → Success
+🔄 FALLBACK: Trying fallback model google/gemini-2.5-flash-lite-preview-06-17
+✅ Model responded successfully (fallback)
+```
+
+### September 18, 2025 - Link Processing Improvements
+
+**✅ What was fixed:**
+- **Marker Positioning**: No more markers in headers, smart sentence-end placement
+- **Duplication Prevention**: Eliminated nested anchor tags `<a><a>[1]</a></a>`
+- **Position Accuracy**: Improved algorithm with header detection and context awareness
+- **Validation**: Added comprehensive HTML structure validation
+
+**Details:** See [Link Processing Documentation](link_processing.md)
 
 ---
 

@@ -64,6 +64,7 @@ LLM_MODELS = {
     "generate_article": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for WordPress article generation
     "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for editorial review and cleanup
     "link_planning": "deepseek/deepseek-chat-v3.1:free",                # FREE Model for link planning
+    "link_selection": "deepseek/deepseek-chat-v3.1:free",               # FREE Model for link selection from candidates
 }
 
 # Fallback models for each stage (used when primary model fails)
@@ -73,6 +74,7 @@ FALLBACK_MODELS = {
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "link_planning": "google/gemini-2.5-flash-lite-preview-06-17",      # Fallback to Gemini 2.5
+    "link_selection": "google/gemini-2.5-flash-lite-preview-06-17",     # Fallback to Gemini 2.5
 }
 
 # Retry configuration for LLM requests
@@ -81,6 +83,11 @@ RETRY_CONFIG = {
     "delays": [2, 5, 10],  # seconds between retries
     "use_fallback_on_final_failure": True
 }
+
+# Section generation timeout configuration
+SECTION_TIMEOUT = 180  # 3 minutes total timeout per section
+MODEL_TIMEOUT = 60     # 1 minute timeout per model (primary + fallback)
+SECTION_MAX_RETRIES = 3  # Maximum retries per section
 
 # Default model if no specific model is configured
 DEFAULT_MODEL = "deepseek/deepseek-chat-v3.1:free"

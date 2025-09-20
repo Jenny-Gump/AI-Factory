@@ -47,7 +47,7 @@ class LinkProcessor:
                 ]
             }
 
-    def process_links(self, wordpress_data: Dict[str, Any], topic: str, base_path: str,
+    async def process_links(self, wordpress_data: Dict[str, Any], topic: str, base_path: str,
                           token_tracker: TokenTracker, active_models: Dict[str, str]) -> Dict[str, Any]:
         """
         Main entry point for link processing pipeline.
@@ -71,7 +71,7 @@ class LinkProcessor:
         try:
             # Step 1: Create link plan
             logger.info("Step 1: Creating link plan...")
-            link_plan, draft_with_markers = self.create_link_plan(
+            link_plan, draft_with_markers = await self.create_link_plan(
                 wordpress_data.get('content', ''), topic, base_path, token_tracker,
                 active_models.get('link_planning', active_models.get('extract_prompts'))
             )
@@ -82,11 +82,11 @@ class LinkProcessor:
 
             # Step 2: Search candidates
             logger.info("Step 2: Searching for link candidates...")
-            candidates = self.search_candidates(link_plan, base_path)
+            candidates = await self.search_candidates(link_plan, base_path)
 
             # Step 3: Select best links
             logger.info("Step 3: Selecting best links...")
-            selected_links = self.select_links(candidates, link_plan, base_path,
+            selected_links = await self.select_links(candidates, link_plan, base_path,
                                                    token_tracker, active_models.get('link_selection', active_models.get('extract_prompts')))
 
             # Step 4: Apply links to content
@@ -108,7 +108,7 @@ class LinkProcessor:
             # Return original data on failure
             return wordpress_data
 
-    def create_link_plan(self, html_content: str, topic: str, base_path: str,
+    async def create_link_plan(self, html_content: str, topic: str, base_path: str,
                              token_tracker: TokenTracker, model_name: str) -> Tuple[List[Dict], str]:
         """
         Step 1: Generate link plan with markers and search queries.
@@ -117,14 +117,11 @@ class LinkProcessor:
             Tuple of (link_plan, draft_with_markers)
         """
         try:
-            # Prepare HTML for LLM by marking problematic tags
-            prepared_html = self._prepare_html_for_llm(html_content)
-
             # Load and prepare LLM messages
             messages = _load_and_prepare_messages(
                 "basic_articles",
                 "01_5_link_planning",
-                {"topic": topic, "html_content": prepared_html}
+                {"topic": topic, "html_content": html_content}
             )
 
             # Make LLM request
@@ -171,20 +168,51 @@ class LinkProcessor:
                 logger.error("Invalid link plan JSON structure - link_plan not a list")
                 return [], html_content
 
-            # Validate anchors before processing
-            validation_report = self._validate_anchors(html_content, link_plan)
-            self._save_artifact(validation_report, base_path, 'anchor_validation_report.json')
+            # Validate and clean link plan entries
+            validated_link_plan = []
+            content_length = len(html_content)
 
-            # Create markers using smart positioning based on anchor_text
-            draft_with_markers = self._insert_markers_with_smart_positioning(html_content, link_plan)
-            validated_link_plan = link_plan
+            for item in link_plan:
+                if not isinstance(item, dict):
+                    logger.warning(f"Skipping invalid link plan item (not dict): {item}")
+                    continue
+
+                # Check required fields
+                required_fields = ['ref_id', 'query', 'character_position']
+                if not all(field in item for field in required_fields):
+                    logger.warning(f"Skipping link plan item missing required fields: {item}")
+                    continue
+
+                # Validate character position
+                pos = item.get('character_position')
+                if not isinstance(pos, int) or pos < 0 or pos > content_length:
+                    logger.warning(f"Invalid character_position {pos} for ref_id {item.get('ref_id')} (content length: {content_length})")
+                    continue
+
+                # Check if position is in a header (rough check)
+                context_start = max(0, pos - 50)
+                context_end = min(content_length, pos + 50)
+                context = html_content[context_start:context_end]
+
+                if '<h' in context and '</h' in context:
+                    logger.warning(f"Position {pos} for ref_id {item.get('ref_id')} appears to be in header context, may be adjusted during insertion")
+
+                validated_link_plan.append(item)
+
+            if len(validated_link_plan) != len(link_plan):
+                logger.warning(f"Filtered {len(link_plan) - len(validated_link_plan)} invalid entries from link plan")
+
+            link_plan = validated_link_plan
+
+            # Insert markers based on character positions
+            draft_with_markers = self._insert_markers_by_position(html_content, link_plan)
 
             # Save artifacts
-            self._save_artifact(validated_link_plan, base_path, 'link_plan.json')
+            self._save_artifact(link_plan, base_path, 'link_plan.json')
             self._save_artifact(draft_with_markers, base_path, 'draft_with_markers.html')
 
-            logger.info(f"Generated {len(validated_link_plan)} link queries with markers")
-            return validated_link_plan, draft_with_markers
+            logger.info(f"Generated {len(link_plan)} link queries with markers")
+            return link_plan, draft_with_markers
 
         except Exception as e:
             logger.error(f"Failed to create link plan: {e}")
@@ -353,7 +381,7 @@ class LinkProcessor:
         logger.debug(f"Fallback insertion point: pos={pos} (moved from {target_pos})")
         return pos
 
-    def search_candidates(self, link_plan: List[Dict], base_path: str) -> Dict[str, List[Dict]]:
+    async def search_candidates(self, link_plan: List[Dict], base_path: str) -> Dict[str, List[Dict]]:
         """
         Step 2: Search for candidate URLs for each query.
 
@@ -362,46 +390,53 @@ class LinkProcessor:
         """
         candidates = {}
 
-        def search_single_query(query_info: Dict) -> Tuple[str, List[Dict]]:
-            ref_id = query_info.get('ref_id')
-            query = query_info.get('query', '')
+        # Limit concurrent requests
+        semaphore = asyncio.Semaphore(5)
+        timeout = aiohttp.ClientTimeout(total=6)
 
-            logger.info(f"Searching for ref_id={ref_id}: '{query}'")
+        async def search_single_query(session: aiohttp.ClientSession, query_info: Dict) -> Tuple[str, List[Dict]]:
+            async with semaphore:
+                ref_id = query_info.get('ref_id')
+                query = query_info.get('query', '')
 
-            try:
-                url = f"{self.base_url}/search"
-                json_data = {
-                    "query": query,
-                    "limit": 5
-                }
+                logger.info(f"Searching for ref_id={ref_id}: '{query}'")
 
-                import requests
-                response = requests.post(url, json=json_data, headers=self.headers, timeout=6)
-                response.raise_for_status()
-                search_results = response.json()
-                results = search_results.get('data', {}).get('web', [])
+                try:
+                    url = f"{self.base_url}/search"
+                    json_data = {
+                        "query": query,
+                        "limit": 5
+                    }
 
-                # Filter and validate candidates
-                valid_candidates = []
-                for result in results[:5]:  # Max 5 per query
-                    if self._validate_candidate_sync(result):
-                        valid_candidates.append(result)
+                    async with session.post(url, json=json_data) as response:
+                        response.raise_for_status()
+                        search_results = await response.json()
+                        results = search_results.get('data', {}).get('web', [])
 
-                logger.info(f"Found {len(valid_candidates)} valid candidates for ref_id={ref_id}")
-                return ref_id, valid_candidates
+                        # Filter and validate candidates
+                        valid_candidates = []
+                        for result in results[:5]:  # Max 5 per query
+                            if await self._validate_candidate(session, result):
+                                valid_candidates.append(result)
 
-            except Exception as e:
-                logger.error(f"Search failed for ref_id={ref_id}: {e}")
-                return ref_id, []
+                        logger.info(f"Found {len(valid_candidates)} valid candidates for ref_id={ref_id}")
+                        return ref_id, valid_candidates
 
-        # Execute searches sequentially with delays
-        for i, query_info in enumerate(link_plan):
-            if i > 0:
-                import time
-                time.sleep(2)  # 2 second delay between requests
+                except Exception as e:
+                    logger.error(f"Search failed for ref_id={ref_id}: {e}")
+                    return ref_id, []
 
-            ref_id, urls = search_single_query(query_info)
-            candidates[ref_id] = urls
+        # Execute searches concurrently
+        async with aiohttp.ClientSession(headers=self.headers, timeout=timeout) as session:
+            tasks = [search_single_query(session, query_info) for query_info in link_plan]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error(f"Search task failed: {result}")
+                    continue
+                ref_id, urls = result
+                candidates[ref_id] = urls
 
         # Save candidates
         self._save_artifact(candidates, base_path, 'candidates.json')
@@ -411,7 +446,7 @@ class LinkProcessor:
 
         return candidates
 
-    def _validate_candidate_sync(self, result: Dict) -> bool:
+    async def _validate_candidate(self, session: aiohttp.ClientSession, result: Dict) -> bool:
         """Validate a single candidate URL with HEAD request and domain filtering."""
         url = result.get('url', '')
         if not url:
@@ -419,7 +454,6 @@ class LinkProcessor:
 
         try:
             # Parse domain
-            from urllib.parse import urlparse
             domain = urlparse(url).netloc.lower()
 
             # Check blocked domains
@@ -428,14 +462,15 @@ class LinkProcessor:
                     return False
 
             # Quick HEAD check with short timeout
-            import requests
-            response = requests.head(url, timeout=2)
-            return response.status_code == 200
+            head_timeout = aiohttp.ClientTimeout(total=2)
+            async with aiohttp.ClientSession(timeout=head_timeout) as head_session:
+                async with head_session.head(url) as response:
+                    return response.status == 200
 
         except Exception:
             return False
 
-    def select_links(self, candidates: Dict[str, List[Dict]], link_plan: List[Dict],
+    async def select_links(self, candidates: Dict[str, List[Dict]], link_plan: List[Dict],
                           base_path: str, token_tracker: TokenTracker, model_name: str) -> Dict[str, Dict]:
         """
         Step 3: Select best link for each ref_id using heuristics + LLM tiebreaker.
@@ -448,11 +483,6 @@ class LinkProcessor:
         for query_info in link_plan:
             ref_id = query_info.get('ref_id')
             hint = query_info.get('hint', '')
-            anchor_text = query_info.get('anchor_text', '')
-            context_before = query_info.get('context_before', '')
-            context_after = query_info.get('context_after', '')
-            context = f"{context_before} {context_after}".strip()
-
             query_candidates = candidates.get(ref_id, [])
 
             if not query_candidates:
@@ -476,13 +506,23 @@ class LinkProcessor:
                     'reason': f"Single candidate (score: {best['score']:.2f})"
                 }
             elif len(scored_candidates) > 1:
-                # Multiple candidates - use best scoring candidate (skip slow LLM selection)
-                best_candidate = scored_candidates[0]  # Already sorted by score
-                selected_links[ref_id] = {
-                    'chosen_url': best_candidate['url'],
-                    'chosen_title': best_candidate.get('title', 'Link'),
-                    'reason': f"Heuristic selection (score: {best_candidate.get('score', 0):.2f})"
-                }
+                # Multiple candidates - use LLM tiebreaker
+                best_candidate = await self._llm_tiebreaker(
+                    scored_candidates[:3], hint, token_tracker, model_name, base_path, ref_id
+                )
+
+                if best_candidate:
+                    selected_links[ref_id] = {
+                        'chosen_url': best_candidate['url'],
+                        'chosen_title': best_candidate.get('title', 'Link'),
+                        'reason': f"LLM selection (score: {best_candidate['score']:.2f})"
+                    }
+                else:
+                    selected_links[ref_id] = {
+                        'chosen_url': None,
+                        'chosen_title': None,
+                        'reason': 'LLM could not select'
+                    }
             else:
                 selected_links[ref_id] = {
                     'chosen_url': None,
@@ -590,21 +630,45 @@ class LinkProcessor:
         # Sort by score descending
         return sorted(scored, key=lambda x: x['score'], reverse=True)
 
-    async def _llm_select_best_candidate(self, candidates: List[Dict], hint: str, anchor_text: str,
-                                       context: str, token_tracker: TokenTracker, model_name: str,
-                                       base_path: str, ref_id: str) -> Optional[Dict]:
-        """Use LLM with proper prompt file to select best candidate."""
+    async def _llm_tiebreaker(self, candidates: List[Dict], hint: str, token_tracker: TokenTracker,
+                            model_name: str, base_path: str, ref_id: str) -> Optional[Dict]:
+        """Use LLM to select best candidate when heuristics are tied."""
         try:
-            # Load and prepare LLM messages using the proper prompt file
-            messages = _load_and_prepare_messages(
-                "basic_articles",
-                "02_link_selection",
-                {
-                    "anchor_text": anchor_text,
-                    "context": context,
-                    "candidates": json.dumps(candidates, indent=2, ensure_ascii=False)
-                }
-            )
+            # Prepare candidates info for LLM
+            candidates_text = ""
+            for i, candidate in enumerate(candidates, 1):
+                candidates_text += f"{i}. {candidate.get('title', 'No title')} - {candidate['url']}\n"
+                if 'description' in candidate:
+                    candidates_text += f"   Description: {candidate['description'][:100]}...\n"
+                candidates_text += f"   Score: {candidate['score']:.2f}\n\n"
+
+            # Enhanced selection prompt with strict authority hierarchy
+            system_prompt = """You are a link selection expert. STRICTLY follow this priority hierarchy:
+
+1. HIGHEST: Official API documentation (docs.openai.com, api.anthropic.com, docs.microsoft.com)
+2. HIGH: Official company docs (openai.com, anthropic.com, google.ai, microsoft.com)
+3. MEDIUM: Standards organizations (w3.org, ietf.org, ieee.org)
+4. MEDIUM: Research papers (arxiv.org, papers.nips.cc, academic .edu domains)
+5. LOW: GitHub official repos (github.com, github.io)
+
+NEVER select:
+- Community forums (community.*, forum.*, answers.*)
+- Personal blogs (medium.com, dev.to, hackernoon.com)
+- Question/Answer sites (stackoverflow.com, quora.com)
+
+Prefer official documentation over everything else."""
+
+            user_prompt = f"""Select the MOST AUTHORITATIVE link for: {hint}
+
+Candidates:
+{candidates_text}
+
+Respond with ONLY the number (1, 2, or 3) of the most authoritative candidate based on the hierarchy above."""
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
 
             response_obj, actual_model = _make_llm_request_with_retry(
                 stage_name="link_selection",
@@ -616,46 +680,18 @@ class LinkProcessor:
 
             content = response_obj.choices[0].message.content.strip()
 
-            # Save interaction for debugging
-            save_llm_interaction(
-                base_path=base_path,
-                stage_name="link_selection",
-                messages=messages,
-                response=content,
-                request_id=f"link_selection_{ref_id}"
-            )
+            # Parse selection
+            selection_match = re.search(r'\b([123])\b', content)
+            if selection_match:
+                selection_idx = int(selection_match.group(1)) - 1
+                if 0 <= selection_idx < len(candidates):
+                    return candidates[selection_idx]
 
-            # Parse JSON response
-            try:
-                parsed_json = json.loads(content)
-                selected_url = parsed_json.get('selected_url', '')
-
-                # Find the candidate with matching URL
-                for candidate in candidates:
-                    if candidate.get('url') == selected_url:
-                        return candidate
-
-                logger.warning(f"Selected URL '{selected_url}' not found in candidates for ref_id={ref_id}")
-                return candidates[0] if candidates else None
-
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse JSON selection for ref_id={ref_id}: {e}")
-                # Try enhanced JSON parsing
-                try:
-                    parsed_json = _parse_json_from_response(content)
-                    selected_url = parsed_json.get('selected_url', '')
-
-                    for candidate in candidates:
-                        if candidate.get('url') == selected_url:
-                            return candidate
-
-                except Exception as e2:
-                    logger.error(f"Enhanced JSON parsing also failed for ref_id={ref_id}: {e2}")
-
-                return candidates[0] if candidates else None
+            logger.warning(f"Could not parse LLM selection for ref_id={ref_id}: '{content}'")
+            return candidates[0]  # Return first (highest scored) as fallback
 
         except Exception as e:
-            logger.error(f"LLM selection failed for ref_id={ref_id}: {e}")
+            logger.error(f"LLM tiebreaker failed for ref_id={ref_id}: {e}")
             return candidates[0] if candidates else None
 
     def apply_links(self, html_content: str, selected_links: Dict[str, Dict], base_path: str) -> str:
@@ -668,30 +704,16 @@ class LinkProcessor:
         """
         logger.info("Applying links to content...")
 
-        # Filter valid links and create reindex mapping in CORRECT ORDER
+        # Filter valid links and create reindex mapping
         valid_links = {}
         reindex_map = {}
+        new_index = 1
 
-        # Sort ref_ids by numeric value to maintain sequential order
-        sorted_ref_ids = []
         for ref_id, link_info in selected_links.items():
             if link_info['chosen_url']:
-                try:
-                    # Convert ref_id to int for proper sorting
-                    sorted_ref_ids.append((int(ref_id), ref_id, link_info))
-                except ValueError:
-                    # If ref_id is not numeric, append at end
-                    sorted_ref_ids.append((9999, ref_id, link_info))
-
-        # Sort by numeric value
-        sorted_ref_ids.sort(key=lambda x: x[0])
-
-        # Create mapping with sequential indices
-        new_index = 1
-        for _, ref_id, link_info in sorted_ref_ids:
-            valid_links[ref_id] = link_info
-            reindex_map[ref_id] = str(new_index)
-            new_index += 1
+                valid_links[ref_id] = link_info
+                reindex_map[ref_id] = str(new_index)
+                new_index += 1
 
         logger.info(f"Reindexing {len(valid_links)} valid links from {len(selected_links)} total")
 
@@ -828,281 +850,6 @@ class LinkProcessor:
         self._save_artifact(report, base_path, 'links_report.json')
 
         logger.info(f"Link processing report: {selected_count}/{total_refs} resolved ({report['success_rate']}%)")
-
-    def _find_best_insertion_point(self, text: str, anchor_text: str, context_before: str = "", context_after: str = "") -> int:
-        """
-        Find the best position to insert a marker after anchor_text, avoiding HTML tags.
-
-        Args:
-            text: Full HTML content
-            anchor_text: The exact text substring to find
-            context_before: 10-15 characters before anchor_text for precise localization
-            context_after: 10-15 characters after anchor_text for precise localization
-
-        Returns:
-            Best character position to insert marker, or -1 if not found
-        """
-        logger.debug(f"Finding insertion point for anchor_text: '{anchor_text}'")
-
-        # Try to find using full context first (most precise)
-        if context_before and context_after:
-            search_pattern = context_before + anchor_text + context_after
-            pattern_pos = text.find(search_pattern)
-            if pattern_pos != -1:
-                # Calculate position right after anchor_text
-                anchor_start = pattern_pos + len(context_before)
-                anchor_end = anchor_start + len(anchor_text)
-                return self._adjust_position_to_avoid_tags(text, anchor_end)
-
-        # Fallback to anchor_text with partial context
-        if context_before:
-            search_pattern = context_before + anchor_text
-            pattern_pos = text.find(search_pattern)
-            if pattern_pos != -1:
-                anchor_start = pattern_pos + len(context_before)
-                anchor_end = anchor_start + len(anchor_text)
-                return self._adjust_position_to_avoid_tags(text, anchor_end)
-
-        # Last resort: just find anchor_text directly
-        anchor_pos = text.find(anchor_text)
-        if anchor_pos != -1:
-            anchor_end = anchor_pos + len(anchor_text)
-            return self._adjust_position_to_avoid_tags(text, anchor_end)
-
-        logger.warning(f"Could not find anchor_text: '{anchor_text}' in content")
-        return -1
-
-    def _adjust_position_to_avoid_tags(self, text: str, target_pos: int) -> int:
-        """
-        Adjust position to avoid placing markers inside HTML tags.
-
-        Args:
-            text: Full HTML content
-            target_pos: Initial target position
-
-        Returns:
-            Adjusted position that's safe for marker insertion
-        """
-        # Check if we're inside a tag
-        tag_start = text.rfind('<', 0, target_pos)
-        tag_end = text.rfind('>', 0, target_pos)
-
-        # If we're inside a tag (< comes after >), move to after the closing >
-        if tag_start > tag_end:
-            next_close = text.find('>', target_pos)
-            if next_close != -1:
-                target_pos = next_close + 1
-
-        # Look for better insertion points nearby
-        # Priority: end of sentence > punctuation > word boundary
-
-        # Search window around target position
-        window_start = max(0, target_pos - 20)
-        window_end = min(len(text), target_pos + 20)
-        window = text[window_start:window_end]
-
-        # Relative position in window
-        rel_pos = target_pos - window_start
-
-        # Look for sentence endings first (highest priority)
-        sentence_endings = ['. ', '.</p>', '.</h', '.\n']
-        for ending in sentence_endings:
-            end_pos = window.find(ending, max(0, rel_pos - 10), min(len(window), rel_pos + 10))
-            if end_pos != -1:
-                return window_start + end_pos + len(ending) - 1
-
-        # Look for punctuation (medium priority)
-        punctuation_marks = [', ', '; ', ') ', ' – ', ' — ']
-        for punct in punctuation_marks:
-            punct_pos = window.find(punct, max(0, rel_pos - 10), min(len(window), rel_pos + 10))
-            if punct_pos != -1:
-                return window_start + punct_pos + len(punct) - 1
-
-        # Look for word boundaries (lowest priority)
-        for i in range(max(0, rel_pos - 5), min(len(window), rel_pos + 5)):
-            if i < len(window) and window[i] == ' ' and i > 0 and window[i-1].isalnum():
-                return window_start + i
-
-        # If nothing found, return original position
-        return target_pos
-
-    def _insert_markers_with_smart_positioning(self, html_content: str, link_plan: List[Dict]) -> str:
-        """
-        Insert markers into HTML content using smart positioning based on anchor_text.
-
-        Args:
-            html_content: Original HTML content
-            link_plan: List of link plans with anchor_text and context
-
-        Returns:
-            HTML content with markers inserted
-        """
-        content = html_content
-        insertions = []
-
-        logger.info(f"🔧 Starting smart positioning for {len(link_plan)} markers")
-
-        for plan in link_plan:
-            ref_id = plan.get('ref_id', '')
-            anchor_text = plan.get('anchor_text', '')
-            context_before = plan.get('context_before', '')
-            context_after = plan.get('context_after', '')
-
-            logger.debug(f"📍 Processing marker [{ref_id}]: anchor='{anchor_text}', before='{context_before}', after='{context_after}'")
-
-            if not anchor_text:
-                logger.warning(f"No anchor_text provided for ref_id {ref_id}, skipping")
-                continue
-
-            insertion_pos = self._find_best_insertion_point(
-                content, anchor_text, context_before, context_after
-            )
-
-            if insertion_pos == -1:
-                logger.warning(f"❌ Could not find insertion point for marker [{ref_id}]")
-                logger.debug(f"   Search pattern: '{context_before}{anchor_text}{context_after}'")
-                continue
-
-            logger.debug(f"✅ Found insertion point for marker [{ref_id}] at position {insertion_pos}")
-
-            insertions.append({
-                'ref_id': ref_id,
-                'position': insertion_pos,
-                'marker': f'[{ref_id}]'
-            })
-
-        # Sort insertions by position (reverse order to maintain positions)
-        insertions.sort(key=lambda x: x['position'], reverse=True)
-
-        # Insert markers from right to left to maintain positions
-        for insertion in insertions:
-            pos = insertion['position']
-            marker = insertion['marker']
-            content = content[:pos] + marker + content[pos:]
-
-            logger.debug(f"Inserted {marker} at position {pos}")
-
-        # Save debug information
-        debug_info = [
-            {
-                'ref_id': ins['ref_id'],
-                'position': ins['position'],
-                'marker': ins['marker']
-            }
-            for ins in reversed(insertions)  # Reverse to show original order
-        ]
-
-        # Store debug info for later saving
-        self._debug_insertions = debug_info
-
-        logger.info(f"🎯 Smart positioning complete: {len(insertions)}/{len(link_plan)} markers inserted successfully")
-
-        return content
-
-    def _validate_anchors(self, html_content: str, link_plan: List[Dict]) -> Dict:
-        """
-        Validate that all anchor_text exist in the HTML content.
-        Simplified validation: only checks for anchor_text presence, ignoring strict context matching.
-
-        Args:
-            html_content: Original HTML content
-            link_plan: List of link plans with anchor_text and context
-
-        Returns:
-            Validation report with detailed information
-        """
-        from bs4 import BeautifulSoup
-
-        report = {
-            "total_anchors": len(link_plan),
-            "valid_anchors": 0,
-            "invalid_anchors": 0,
-            "validation_details": []
-        }
-
-        # Create clean text version for searching
-        soup = BeautifulSoup(html_content, 'html.parser')
-        clean_text = soup.get_text()
-
-        # Normalize whitespace in clean text
-        clean_text_normalized = ' '.join(clean_text.split())
-
-        for plan in link_plan:
-            ref_id = plan.get('ref_id', 'unknown')
-            anchor_text = plan.get('anchor_text', '')
-            context_before = plan.get('context_before', '')
-            context_after = plan.get('context_after', '')
-
-            detail = {
-                "ref_id": ref_id,
-                "anchor_text": anchor_text,
-                "context_before": context_before,
-                "context_after": context_after,
-                "found": False,
-                "position": -1,
-                "issues": []
-            }
-
-            # Normalize anchor text
-            anchor_normalized = ' '.join(anchor_text.split())
-
-            # First try exact match in HTML
-            if anchor_text in html_content:
-                detail["found"] = True
-                detail["position"] = html_content.find(anchor_text)
-                report["valid_anchors"] += 1
-                logger.debug(f"✅ Anchor [{ref_id}] found in HTML at position {detail['position']}")
-            # Then try normalized text match
-            elif anchor_normalized in clean_text_normalized:
-                detail["found"] = True
-                detail["position"] = clean_text_normalized.find(anchor_normalized)
-                report["valid_anchors"] += 1
-                logger.debug(f"✅ Anchor [{ref_id}] found in clean text (normalized)")
-            else:
-                detail["issues"].append(f"anchor_text '{anchor_text}' not found in HTML or clean text")
-                report["invalid_anchors"] += 1
-                logger.warning(f"❌ Anchor [{ref_id}] validation failed: anchor_text not found")
-
-            report["validation_details"].append(detail)
-
-        logger.info(f"Anchor validation: {report['valid_anchors']}/{report['total_anchors']} valid")
-        return report
-
-    def _prepare_html_for_llm(self, html_content: str) -> str:
-        """
-        Prepare HTML content for LLM by marking elements that should not be used for anchors.
-        This helps LLM avoid selecting text inside headers, code blocks, etc.
-
-        Args:
-            html_content: Original HTML content
-
-        Returns:
-            Marked HTML content
-        """
-        content = html_content
-
-        # Mark headers to avoid them being selected
-        content = content.replace('<h1>', '[HEADER_START]<h1>')
-        content = content.replace('</h1>', '</h1>[HEADER_END]')
-        content = content.replace('<h2>', '[HEADER_START]<h2>')
-        content = content.replace('</h2>', '</h2>[HEADER_END]')
-        content = content.replace('<h3>', '[HEADER_START]<h3>')
-        content = content.replace('</h3>', '</h3>[HEADER_END]')
-
-        # Mark code blocks to avoid them
-        content = content.replace('<code>', '[CODE_START]<code>')
-        content = content.replace('</code>', '</code>[CODE_END]')
-        content = content.replace('<pre>', '[CODE_START]<pre>')
-        content = content.replace('</pre>', '</pre>[CODE_END]')
-
-        # Mark strong and emphasis tags
-        content = content.replace('<strong>', '[FORMAT_START]<strong>')
-        content = content.replace('</strong>', '</strong>[FORMAT_END]')
-        content = content.replace('<em>', '[FORMAT_START]<em>')
-        content = content.replace('</em>', '</em>[FORMAT_END]')
-
-        logger.debug("HTML prepared for LLM with special markers")
-        return content
 
     def _save_artifact(self, data: Any, base_path: str, filename: str):
         """Save artifact to file."""

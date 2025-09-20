@@ -1,4 +1,4 @@
-import asyncio
+import time
 import sys
 import os
 import json
@@ -14,7 +14,9 @@ from src.processing import (
 )
 from src.llm_processing import (
     extract_prompts_from_article,
-    generate_wordpress_article,
+    # extract_prompts_from_article_async,  # REMOVED: using sync version only
+    # generate_wordpress_article,  # DEPRECATED: using section-by-section generation instead
+    generate_article_by_sections,  # NEW: for section-by-section generation
     editorial_review,
     _load_and_prepare_messages,
     _make_llm_request_with_retry,
@@ -74,6 +76,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True)
 
     # --- Этапы 1-6: Поиск, парсинг, очистка ---
     firecrawl_client = FirecrawlClient()
+
     search_results = await firecrawl_client.search(topic)
     save_artifact(search_results, paths["search"], "01_search_results.json")
 
@@ -113,36 +116,73 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True)
     cleaned_sources = clean_content(top_sources)
     save_artifact(cleaned_sources, paths["cleaning"], "final_cleaned_sources.json")
 
-    # --- Этап 7: Извлечение структур ---
-    logger.info(f"Starting structure extraction from {len(cleaned_sources)} sources...")
-    all_structures = []
-    extraction_stats = []
+    # --- Этап 7: Извлечение структур (ПАРАЛЛЕЛЬНО) ---
+    logger.info(f"Starting PARALLEL structure extraction from {len(cleaned_sources)} sources...")
 
-    for i, source in enumerate(cleaned_sources):
-        source_id = f"source_{i+1}"
-        logger.info(f"Extracting structure from {source_id}...")
+    def extract_all_structures():
+        """Extract structures from all sources sequentially"""
+        results = []
 
-        structures = extract_prompts_from_article(
-            article_text=source['cleaned_content'],
-            topic=topic,
-            base_path=paths["structure_extraction"],
-            source_id=source_id,
-            token_tracker=token_tracker,
-            model_name=active_models.get("extract_prompts")
-        )
+        # Process sources sequentially with delays
+        for i, source in enumerate(cleaned_sources):
+            source_id = f"source_{i+1}"
+            logger.info(f"🚀 Starting structure extraction for {source_id}")
 
-        extraction_stats.append({
-            "source_id": source_id,
-            "url": source.get('url', 'Unknown'),
-            "structures_extracted": len(structures)
-        })
+            # Add delay between requests (except for first)
+            if i > 0:
+                delay = 5  # 5 seconds between requests
+                logger.info(f"⏳ {source_id} waiting {delay}s before HTTP request...")
+                time.sleep(delay)
+                logger.info(f"✅ {source_id} finished waiting, starting HTTP request...")
 
-        if len(structures) == 0:
-            logger.warning(f"⚠️  {source_id} extracted 0 structures - possible JSON parsing issue")
-        else:
-            logger.info(f"✅ {source_id} extracted {len(structures)} structures")
+            try:
+                result = extract_prompts_from_article(
+                    article_text=source['cleaned_content'],
+                    topic=topic,
+                    base_path=paths["structure_extraction"],
+                    source_id=source_id,
+                    token_tracker=token_tracker,
+                    model_name=active_models.get("extract_prompts")
+                )
+                results.append(result)
+            except Exception as e:
+                results.append(e)
 
-        all_structures.extend(structures)
+        # Process results
+        all_structures = []
+        extraction_stats = []
+
+        for i, result in enumerate(results):
+            source_id = f"source_{i+1}"
+            source = cleaned_sources[i]
+
+            if isinstance(result, Exception):
+                logger.error(f"❌ {source_id} failed with exception: {result}")
+                extraction_stats.append({
+                    "source_id": source_id,
+                    "url": source.get('url', 'Unknown'),
+                    "structures_extracted": 0,
+                    "error": str(result)
+                })
+            else:
+                structures = result
+                extraction_stats.append({
+                    "source_id": source_id,
+                    "url": source.get('url', 'Unknown'),
+                    "structures_extracted": len(structures)
+                })
+
+                if len(structures) == 0:
+                    logger.warning(f"⚠️  {source_id} extracted 0 structures - possible JSON parsing issue")
+                else:
+                    logger.info(f"✅ {source_id} extracted {len(structures)} structures")
+
+                all_structures.extend(structures)
+
+        return all_structures, extraction_stats
+
+    # Run the sync extraction
+    all_structures, extraction_stats = extract_all_structures()
 
     save_artifact(all_structures, paths["structure_extraction"], "all_structures.json")
 
@@ -183,10 +223,12 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True)
         logger.error("Could not create ultimate structure. Exiting.")
         return
 
-    # --- Этап 9: Генерация WordPress статьи ---
-    logger.info("Generating WordPress-ready article from ultimate structure...")
-    wordpress_data = generate_wordpress_article(
-        prompts=ultimate_structure,
+    # --- Этап 9: Генерация WordPress статьи по секциям ---
+    logger.info("Generating WordPress-ready article from ultimate structure (section by section)...")
+
+    # NEW: Use section-by-section generation
+    wordpress_data = generate_article_by_sections(
+        structure=ultimate_structure,
         topic=topic,
         base_path=paths["final_article"],
         token_tracker=token_tracker,
@@ -199,6 +241,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True)
         logger.info(f"Generated article data ready for editorial review")
     else:
         logger.error("Invalid WordPress data structure returned")
+
 
     # --- Этап 10: Editorial Review ---
     logger.info("Starting editorial review and cleanup...")
@@ -225,16 +268,16 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True)
     if LINK_PROCESSING_ENABLED and isinstance(wordpress_data_final, dict) and "content" in wordpress_data_final:
         logger.info("=== Starting Link Processing Stage ===")
         try:
-            logger.info("Импортируем LinkProcessor...")
             from src.link_processor import LinkProcessor
-            logger.info("✅ LinkProcessor импортирован успешно")
+            logger.info("Используем импортированный LinkProcessor...")
+            logger.info("✅ LinkProcessor доступен")
 
             logger.info("Создаем экземпляр LinkProcessor...")
             link_processor = LinkProcessor()
             logger.info("✅ LinkProcessor создан успешно")
 
             logger.info("Запускаем process_links...")
-            wordpress_data_with_links = await link_processor.process_links(
+            wordpress_data_with_links = link_processor.process_links(
                 wordpress_data=wordpress_data_final,
                 topic=topic,
                 base_path=paths["links"],
@@ -300,7 +343,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True)
     logger.info(f"Token usage report: {token_report_path}")
 
 async def main_flow(topic: str, model_overrides: Dict = None, publish_to_wordpress: bool = True):
-    """Wrapper function for batch processor compatibility"""
+    """Async wrapper function for batch processor compatibility"""
     return await basic_articles_pipeline(topic, publish_to_wordpress)
 
 if __name__ == "__main__":
@@ -311,6 +354,8 @@ if __name__ == "__main__":
 
     topic = sys.argv[1]
     logger.info(f"Starting pipeline for topic: {topic}")
+
+    import asyncio
 
     try:
         asyncio.run(basic_articles_pipeline(topic))

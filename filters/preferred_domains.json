@@ -67,7 +67,14 @@
     "docs.",
     "developer.",
     "api.",
-    "github.com"
+    "github.com",
+    "openreview.net",
+    "papers.nips.cc",
+    "proceedings.mlr.press",
+    "docs.python.org",
+    "cookbook.openai.com",
+    "python.langchain.com",
+    "crfm.stanford.edu"
   ],
   "priority_paths": [
     "/docs",

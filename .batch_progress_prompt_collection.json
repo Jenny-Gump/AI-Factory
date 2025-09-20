@@ -1,31 +1,21 @@
 {
   "content_type": "prompt_collection",
   "topics_file": "topics_basic_articles.txt",
-  "total_topics": 3,
+  "total_topics": 2,
   "completed_topics": [
-    "Least-to-Most prompting technique guide, template, best practices",
-    "Plan-and-Solve prompting technique guide, template, best practices"
+    "Plan-and-Solve prompting technique guide, template, best practices",
+    "Self-Consistency prompting technique guide, template, best practices"
   ],
   "failed_topics": [],
   "current_topic": null,
-  "start_time": "2025-09-17T19:03:01.835248",
-  "last_update_time": "2025-09-17T19:14:52.146970",
+  "start_time": "2025-09-18T03:41:58.268894",
+  "last_update_time": "2025-09-18T04:29:04.669868",
   "topic_statuses": {
-    "Least-to-Most prompting technique guide, template, best practices": {
-      "topic": "Least-to-Most prompting technique guide, template, best practices",
-      "status": "completed",
-      "start_time": "2025-09-17T19:03:01.835689",
-      "end_time": "2025-09-17T19:08:29.232676",
-      "attempts": 1,
-      "error_message": null,
-      "wordpress_id": null,
-      "wordpress_url": null
-    },
     "Plan-and-Solve prompting technique guide, template, best practices": {
       "topic": "Plan-and-Solve prompting technique guide, template, best practices",
       "status": "completed",
-      "start_time": "2025-09-17T19:08:34.291352",
-      "end_time": "2025-09-17T19:14:52.109610",
+      "start_time": "2025-09-18T03:41:58.269356",
+      "end_time": "2025-09-18T04:06:52.871586",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
@@ -33,10 +23,10 @@
     },
     "Self-Consistency prompting technique guide, template, best practices": {
       "topic": "Self-Consistency prompting technique guide, template, best practices",
-      "status": "pending",
-      "start_time": null,
-      "end_time": null,
-      "attempts": 0,
+      "status": "completed",
+      "start_time": "2025-09-18T04:06:57.927636",
+      "end_time": "2025-09-18T04:28:59.622675",
+      "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
       "wordpress_url": null
