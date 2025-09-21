@@ -202,6 +202,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True)
         model_name=active_models.get("create_structure"),
         messages=messages,
         token_tracker=token_tracker,
+        base_path=paths["ultimate_structure"],
         temperature=0.3
     )
 

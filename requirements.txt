@@ -1,6 +1,10 @@
+# Core dependencies
 python-dotenv
 aiohttp
 openai
 requests
 transliterate
 psutil
+
+# Optional dependencies (system works without them)
+beautifulsoup4  # For improved anchor text validation in link processing (fallback)

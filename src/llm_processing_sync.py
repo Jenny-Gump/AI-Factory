@@ -50,6 +50,12 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
 
         logger.info(f"📝 Generating section {idx}/{total_sections}: {section_title}")
 
+        # Prepare section path first
+        section_path = None
+        if sections_path:
+            section_path = os.path.join(sections_path, section_num)
+            os.makedirs(section_path, exist_ok=True)
+
         for attempt in range(1, SECTION_MAX_RETRIES + 1):
             try:
                 logger.info(f"🔄 Section {idx} attempt {attempt}/{SECTION_MAX_RETRIES}: {section_title}")
@@ -71,6 +77,7 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                     model_name=model_name or LLM_MODELS.get("generate_article", DEFAULT_MODEL),
                     messages=messages,
                     token_tracker=token_tracker,
+                    base_path=section_path,
                     temperature=0.3
                 )
 
@@ -86,9 +93,7 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                         raise Exception("All attempts returned insufficient content")
 
                 # Save section interaction
-                if sections_path:
-                    section_path = os.path.join(sections_path, section_num)
-                    os.makedirs(section_path, exist_ok=True)
+                if section_path:
 
                     save_llm_interaction(
                         base_path=section_path,

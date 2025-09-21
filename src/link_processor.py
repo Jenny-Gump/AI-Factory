@@ -609,10 +609,10 @@ class LinkProcessor:
                     score += 5.0
                     break
 
-            # Priority domain bonuses (+2.0)
+            # Priority domain bonuses (+10.0) - Official sources get high priority
             for priority_domain in self.preferred_domains.get('priority_domains', []):
                 if priority_domain in domain:
-                    score += 2.0
+                    score += 10.0
                     break
 
             # Priority path bonuses (+3.0 for pricing, +1.0 for others)
