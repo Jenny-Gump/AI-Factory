@@ -2,7 +2,7 @@
 
 This guide covers troubleshooting, debugging, and optimization for the Basic Articles pipeline.
 
-## 📋 Quick Navigation
+## Quick Navigation
 
 1. [LLM Debugging](#llm-debugging) - Debug LLM interactions and responses
 2. [Fallback System Issues](#fallback-system-issues) - Fix timeout and fallback problems
@@ -13,7 +13,7 @@ This guide covers troubleshooting, debugging, and optimization for the Basic Art
 
 ---
 
-## 🔍 LLM Debugging
+## LLM Debugging
 
 Every LLM interaction is automatically logged with full transparency for debugging.
 
@@ -94,7 +94,7 @@ cat output/Your_Topic/06_structure_extraction/all_structures.json
 
 **Root cause:** Primary model (DeepSeek) times out and fallback to Gemini doesn't work properly.
 
-**✅ FIXED in latest update** - Complete fallback system overhaul:
+** FIXED in latest update** - Complete fallback system overhaul:
 
 #### New Timeout Configuration (src/config.py):
 ```python
@@ -108,13 +108,13 @@ SECTION_MAX_RETRIES = 3     # Maximum retries per section
 **Before fix:**
 ```
 DeepSeek timeout (120s) → AsyncTimeout → Section marked as failed
-❌ Fallback NEVER called
+ Fallback NEVER called
 ```
 
 **After fix:**
 ```
 DeepSeek timeout (60s) → Automatic fallback → Gemini 2.5 (60s) → Success
-✅ Proper fallback chain with detailed logging
+ Proper fallback chain with detailed logging
 ```
 
 #### New Logging Format:
@@ -123,7 +123,7 @@ DeepSeek timeout (60s) → Automatic fallback → Gemini 2.5 (60s) → Success
 ⏰ TIMEOUT: Model deepseek timed out after 60s (primary for generate_article)
 🔄 FALLBACK: Trying fallback model google/gemini-2.5-flash-lite-preview-06-17 after timeout...
 🤖 Using fallback model for generate_article: google/gemini-2.5-flash-lite-preview-06-17 (timeout: 60s)
-✅ Model google/gemini-2.5-flash-lite-preview-06-17 responded successfully (fallback)
+ Model google/gemini-2.5-flash-lite-preview-06-17 responded successfully (fallback)
 ```
 
 #### Fallback Configuration Check:
@@ -161,21 +161,21 @@ grep -A 10 "FALLBACK_MODELS" src/config.py
    ```
 
 #### Expected Behavior Now:
-- ✅ **DeepSeek timeout → Gemini fallback** (automatic)
-- ✅ **Both timeout → Proper error** with clear message
-- ✅ **Sections complete successfully** even with primary model issues
-- ✅ **Detailed logging** for troubleshooting
+-  **DeepSeek timeout → Gemini fallback** (automatic)
+-  **Both timeout → Proper error** with clear message
+-  **Sections complete successfully** even with primary model issues
+-  **Detailed logging** for troubleshooting
 
 #### Performance Impact:
 - **Before:** Failed sections = incomplete articles
 - **After:** 95%+ success rate with fallback recovery
 - **Time:** Max 180s per section (was 360s timeout)
 
-**Status:** ✅ **Fully resolved** - Fallback system working perfectly
+**Status:**  **Fully resolved** - Fallback system working perfectly
 
 ---
 
-## ⚠️ JSON Parsing Issues
+##  JSON Parsing Issues
 
 ### Symptom: "JSON parsing failed" errors
 
@@ -214,7 +214,7 @@ grep -A 10 "FALLBACK_MODELS" src/config.py
 2. Fallback: Use `_parse_json_from_response()` function (handles markdown blocks)
 3. Final fallback: Return empty result to prevent pipeline crash
 
-**Status:** ✅ **Resolved** - Link processing now handles all JSON response formats
+**Status:**  **Resolved** - Link processing now handles all JSON response formats
 
 ### Symptom: Empty results after LLM call
 
@@ -266,7 +266,7 @@ MIN_CONTENT_LENGTH = 10000 # Minimum article length
 
 ---
 
-## 📝 Content Quality Issues
+##  Content Quality Issues
 
 ### Poor structure extraction
 
@@ -334,7 +334,7 @@ curl -u "admin:your_password" "https://ailynx.ru/wp-json/wp/v2/posts"
 
 ---
 
-## 🔧 Quick Fixes
+##  Quick Fixes
 
 ### Pipeline stuck at specific stage
 

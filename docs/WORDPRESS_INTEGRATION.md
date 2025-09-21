@@ -1,8 +1,8 @@
 # WordPress Integration
 
-Content Generator автоматически публикует статьи на https://ailynx.ru в категории "prompts" в статусе черновика с полной поддержкой Yoast SEO через Custom Post Meta Endpoint.
+Content Factory автоматически публикует статьи на https://ailynx.ru в категории "prompts" в статусе черновика с полной поддержкой Yoast SEO через Custom Post Meta Endpoint.
 
-## 🧪 Настройка и тестирование
+## Настройка и тестирование
 
 ### Создание категории "prompts" (одноразово)
 ```bash
@@ -16,12 +16,12 @@ python3 test_publication_auto.py
 
 ### Результат успешного теста
 ```
-✅ INTEGRATION TEST PASSED!
-📝 WordPress ID: 4377
-🔗 Edit URL: https://ailynx.ru/wp-admin/post.php?post=4377&action=edit
+INTEGRATION TEST PASSED!
+WordPress ID: 4377
+Edit URL: https://ailynx.ru/wp-admin/post.php?post=4377&action=edit
 ```
 
-## 🚀 Использование
+## Использование
 
 ```bash
 # Генерация + автоматическая публикация (по умолчанию)
@@ -34,7 +34,7 @@ python3 batch_processor.py topics.txt --skip-publication
 python3 batch_processor.py topics.txt --generate-model openai/gpt-4o
 ```
 
-## 🔧 Технические детали
+## Технические детали
 
 ### WordPress настройки
 - **Сайт**: https://ailynx.ru
@@ -71,4 +71,4 @@ python3 batch_processor.py topics.txt --generate-model openai/gpt-4o
 
 ---
 
-**Статус**: ✅ Готово к использованию | **Протестировано**: WordPress ID 4377
+**Статус**: Готово к использованию | **Протестировано**: WordPress ID 4377

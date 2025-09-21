@@ -366,3 +366,9 @@ python test_link_fixes.py
 - Убраны все `async/await` из LinkProcessor
 - Последовательное выполнение этапов без event loop конфликтов
 - Простой линейный пайплайн без deadlock'ов
+
+## 📚 См. также
+
+- **[link_scoring_system.md](link_scoring_system.md)** - Детальное описание алгоритма оценки ссылок
+- **[flow.md](flow.md#этап-105-link-processing-обработка-ссылок-)** - Link Processing в контексте пайплайна
+- **[troubleshooting.md](troubleshooting.md#link-processing-json-parsing-fixed-in-latest-update)** - Решение проблем с обработкой ссылок

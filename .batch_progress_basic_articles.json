@@ -1,0 +1,35 @@
+{
+  "content_type": "basic_articles",
+  "topics_file": "topics_basic_articles.txt",
+  "total_topics": 2,
+  "completed_topics": [
+    "Generate Knowledge (GK) prompting technique guide, template, best practices",
+    "Prompt Chaining prompting technique guide, template, best practices"
+  ],
+  "failed_topics": [],
+  "current_topic": null,
+  "start_time": "2025-09-20T19:47:56.736157",
+  "last_update_time": "2025-09-20T21:19:53.911459",
+  "topic_statuses": {
+    "Generate Knowledge (GK) prompting technique guide, template, best practices": {
+      "topic": "Generate Knowledge (GK) prompting technique guide, template, best practices",
+      "status": "completed",
+      "start_time": "2025-09-20T19:47:56.736529",
+      "end_time": "2025-09-20T20:35:17.848741",
+      "attempts": 1,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Prompt Chaining prompting technique guide, template, best practices": {
+      "topic": "Prompt Chaining prompting technique guide, template, best practices",
+      "status": "completed",
+      "start_time": "2025-09-20T20:35:22.901445",
+      "end_time": "2025-09-20T21:19:48.865208",
+      "attempts": 1,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    }
+  }
+}

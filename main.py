@@ -44,7 +44,7 @@ def save_artifact(data, path, filename):
 async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True):
     """
     Simplified pipeline for generating basic articles with FAQ and sources.
-    Этапы: 1-6 поиск/очистка → 7 структуры → 8 ультимативная → 9 генерация → 10 редактура
+    Этапы: 1-6 поиск/очистка → 7 структуры → 8 ультимативная → 9 генерация → 10 редактура → 10.5 ссылки → 11 публикация
     """
     logger.info(f"--- Starting Basic Articles Pipeline for topic: '{topic}' ---")
 
