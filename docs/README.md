@@ -7,17 +7,17 @@ Automated pipeline for generating high-quality basic articles with FAQ sections 
 ```bash
 cd "/path/to/Content-factory"
 source venv/bin/activate
-python main.py "Your topic here"
+python3 main.py "Your topic here"
 ```
 
 **Example:**
 ```bash
-python main.py "Best practices for remote work productivity"
+python3 main.py "Best practices for remote work productivity"
 ```
 
 ## 📋 How It Works
 
-**10-Stage Pipeline:**
+**11-Stage Pipeline:**
 
 1. **Search** - Find 20 relevant URLs using Firecrawl API
 2. **Parse** - Extract content from URLs with filtering
@@ -26,10 +26,10 @@ python main.py "Best practices for remote work productivity"
 5. **Clean** - Remove navigation, ads, and formatting noise
 6. **Extract Structures** - Analyze content organization from each source
 7. **Create Ultimate Structure** - Synthesize all structures into one comprehensive outline
-8. **Generate Article** - Create WordPress-ready article with FAQ and sources
+8. **Article Generation (Section-by-Section)** - Generate article by sections with 5s delays
 9. **Editorial Review** - Clean formatting and improve readability
-10. **Link Processing** *(optional)* - Add relevant external links with academic footnotes
-11. **Publish** *(optional)* - Automatically publish to WordPress
+10. **Link Processing** - Автоматическое добавление 10-20 авторитетных ссылок
+11. **Publish** - Автоматическая публикация в WordPress (по умолчанию включена)
 
 ## 🎯 Output
 
@@ -45,15 +45,21 @@ Each run generates:
 ```
 Content-factory/
 ├── main.py                 # Main pipeline script
+├── batch_processor.py      # Batch processing script
 ├── src/                    # Core modules
-│   ├── firecrawl_client.py # API integration
-│   ├── processing.py       # Content processing
+│   ├── config.py           # Configuration
 │   ├── llm_processing.py   # LLM interactions
-│   └── config.py           # Configuration
+│   ├── link_processor.py   # Link processing
+│   ├── processing.py       # Content processing
+│   ├── firecrawl_client.py # API integration
+│   └── wordpress_publisher.py # WordPress integration
 ├── prompts/basic_articles/ # LLM prompts
 │   ├── 01_extract.txt      # Structure extraction
 │   ├── 02_create_ultimate_structure.txt
-│   └── 01_generate_wordpress_article.txt
+│   ├── 01_generate_section.txt # Section generation
+│   ├── 02_editorial_review.txt # Editorial review
+│   ├── 01_5_link_planning.txt  # Link planning
+│   └── 02_link_selection.txt   # Link selection
 ├── filters/                # Content filtering
 ├── output/                 # Generated content
 └── docs/                   # Documentation
@@ -113,11 +119,19 @@ output/Your_Topic/
 │   ├── llm_requests/       # Debug: What was sent to LLM
 │   └── llm_responses_raw/  # Debug: Raw LLM responses
 ├── 07_ultimate_structure/  # Synthesized structure
-├── 08_article_generation/  # Generated article
+│   └── ultimate_structure.json
+├── 08_article_generation/  # Section-by-section generation
+│   ├── sections/
+│   │   ├── section_1/
+│   │   │   ├── llm_requests/
+│   │   │   └── llm_responses_raw/
+│   │   └── section_N/
+│   ├── merged_content.json
+│   └── wordpress_data.json
 ├── 09_editorial_review/    # Final article
 │   ├── wordpress_data_final.json  # Ready for WordPress
 │   └── article_content_final.html # HTML content
-├── 10_link_processing/     # Link processing (optional)
+├── 10_link_processing/     # Automatic link processing
 │   ├── link_plan.json              # Generated link plan
 │   ├── candidates.json             # Found link candidates
 │   ├── selected_links.json         # Selected links
@@ -173,7 +187,9 @@ output/Your_Topic/
 - **[Flow Guide](flow.md)** - Detailed pipeline flow with diagnostics
 - **[Troubleshooting](troubleshooting.md)** - Complete debugging guide
 - **[WordPress Integration](WORDPRESS_INTEGRATION.md)** - Publication setup
-- **[Link System](LINK_SYSTEM.md)** - Automatic link insertion
+- **[Link Processing](link_processing.md)** - Automatic link insertion
+- **[Link Scoring System](link_scoring_system.md)** - Technical link scoring details
+- **[Section Implementation](section-by-section-implementation.md)** - Section-by-section generation
 
 ## 🔧 Dependencies
 

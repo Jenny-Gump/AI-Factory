@@ -16,7 +16,7 @@
 - **Создает 10-20 поисковых запросов** для каждого `anchor_text`
 - **Определяет контекст** до и после каждого фрагмента (`context_before`, `context_after`)
 - **Модель**: `deepseek-chat` с fallback на Gemini
-- **Промпт**: `prompts/basic_articles/01_5_link_planning.txt` с новыми правилами выбора якорей
+- **Промпт**: `prompts/basic_articles/01_5_link_planning.txt` с правилами выбора якорей
 - **Выход**: JSON с массивом `{"ref_id": 1, "anchor_text": "Least-to-Most техника", "query": "least to most prompting research", "context_before": "метод ", "context_after": " является"}`
 
 ### Этап 2: Anchor Validation
@@ -44,7 +44,7 @@
 ### Этап 4: LLM Link Selection
 - **LLM анализ кандидатов** для каждого `anchor_text`
 - **Входные данные**: `anchor_text`, `context`, список кандидатов
-- **Промпт**: `prompts/basic_articles/02_link_selection.txt`
+- **Промпт**: `prompts/basic_articles/02_link_selection.txt` ✅ **ИСПОЛЬЗУЕТСЯ КОРРЕКТНО**
 - **Модель**: `deepseek-chat` для выбора лучшей ссылки
 - **Приоритет**: docs.* > научные статьи > GitHub > остальные
 - **Выход**: `selected_links.json` с лучшими ссылками
@@ -106,7 +106,7 @@ def _validate_anchors(self, html_content: str, link_plan: List[Dict]) -> Dict:
 ```python
 messages = _load_and_prepare_messages(
     "basic_articles",
-    "02_link_selection",  # ✅ ФАЙЛ ИСПОЛЬЗУЕТСЯ КОРРЕКТНО!
+    "02_link_selection",  # ✅ ФАЙЛ prompts/basic_articles/02_link_selection.txt ИСПОЛЬЗУЕТСЯ КОРРЕКТНО!
     {
         "anchor_text": link_item.get("anchor_text", ""),
         "context": f"{context_before} {context_after}",

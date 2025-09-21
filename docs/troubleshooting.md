@@ -37,11 +37,20 @@ output/Your_Topic/
 │   ├── llm_requests/
 │   └── llm_responses_raw/
 ├── 08_article_generation/
-│   ├── wordpress_data.json
+│   ├── sections/                     # Section-by-section generation
+│   │   ├── section_1/
+│   │   │   ├── llm_requests/
+│   │   │   └── llm_responses_raw/
+│   │   └── section_N/
+│   ├── merged_content.json
+│   └── wordpress_data.json
+├── 09_editorial_review/
+│   ├── wordpress_data_final.json
 │   ├── llm_requests/
 │   └── llm_responses_raw/
-└── 09_editorial_review/
-    ├── wordpress_data_final.json
+└── 10_link_processing/               # Link processing
+    ├── link_plan.json
+    ├── selected_links.json
     ├── llm_requests/
     └── llm_responses_raw/
 ```
@@ -66,6 +75,9 @@ output/Your_Topic/
 ```bash
 # Check raw responses for a specific stage
 cat output/Your_Topic/06_structure_extraction/llm_responses_raw/source_1_response.txt
+
+# Check section generation (new)
+cat output/Your_Topic/08_article_generation/sections/section_1/llm_responses_raw/generate_section_response.txt
 
 # Check what was sent to LLM
 cat output/Your_Topic/06_structure_extraction/llm_requests/source_1_request.json
