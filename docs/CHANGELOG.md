@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Reverted Editorial Model to DeepSeek** (Sept 22, 2025)
+  - **Decision**: Reverted editorial_review model back to `deepseek/deepseek-chat-v3.1:free`
+  - **Reason**: Grok-4-Fast показал неудовлетворительное качество editorial review
+  - **Impact**: Editorial review uses stable DeepSeek model with proven performance
+  - **Files Changed**:
+    - `src/config.py`: Reverted editorial_review model to DeepSeek
+
 ### Added
 - **Enhanced Memory Management System** (Sept 17, 2025)
   - **LLM Clients Cache Cleanup**: Added `clear_llm_clients_cache()` function to free accumulated OpenAI client objects

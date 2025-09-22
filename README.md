@@ -276,6 +276,7 @@ Article generation complete
 
 **Доступные модели:**
 - `deepseek/deepseek-chat-v3.1:free` - **По умолчанию (БЕСПЛАТНО)**
+- `x-ai/grok-4-fast:free` - **Для редактуры (БЕСПЛАТНО)**
 - `google/gemini-2.5-flash-lite-preview-06-17` (65K) - Fallback модель
 - `deepseek-reasoner`, `openai/gpt-4o`, `openai/gpt-4o-mini` - Альтернативы
 

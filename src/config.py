@@ -112,7 +112,8 @@ LLM_PROVIDERS = {
             "openai/gpt-3.5-turbo",
             "google/gemini-2.0-flash-001",
             "google/gemini-2.5-flash-lite-preview-06-17",
-            "deepseek/deepseek-chat-v3.1:free"
+            "deepseek/deepseek-chat-v3.1:free",
+            "x-ai/grok-4-fast:free"
         ],
         "extra_headers": {
             "HTTP-Referer": "https://github.com/your-repo/content-generator",

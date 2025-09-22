@@ -30,13 +30,13 @@ WORDPRESS_APP_PASSWORD=xxxx xxxx xxxx xxxx
 
 ##  Модели LLM
 
-### Основные модели (DeepSeek FREE):
+### Основные модели (DeepSeek FREE + Grok-4-Fast):
 ```python
 LLM_MODELS = {
     "extract_prompts": "deepseek/deepseek-chat-v3.1:free",
     "create_structure": "deepseek/deepseek-chat-v3.1:free",
     "generate_article": "deepseek/deepseek-chat-v3.1:free",
-    "editorial_review": "deepseek/deepseek-chat-v3.1:free",
+    "editorial_review": "x-ai/grok-4-fast:free",        # NEW: Grok-4-Fast для редактуры
     "link_planning": "deepseek/deepseek-chat-v3.1:free",
     "link_selection": "deepseek/deepseek-chat-v3.1:free",
 }
@@ -135,6 +135,28 @@ RETRY_CONFIG = {
     "max_attempts": 3,
     "delays": [2, 5, 10],  # Задержки между попытками
     "use_fallback_on_final_failure": True
+}
+```
+
+### Провайдеры LLM:
+```python
+LLM_PROVIDERS = {
+    "deepseek": {
+        "base_url": "https://api.deepseek.com",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "models": ["deepseek-reasoner", "deepseek-chat"]
+    },
+    "openrouter": {
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "models": [
+            "openai/gpt-4o",
+            "openai/gpt-4o-mini",
+            "google/gemini-2.5-flash-lite-preview-06-17",
+            "deepseek/deepseek-chat-v3.1:free",
+            "x-ai/grok-4-fast:free"  # NEW: Grok-4-Fast через OpenRouter
+        ]
+    }
 }
 ```
 
