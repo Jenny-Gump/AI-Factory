@@ -1,0 +1,203 @@
+ИСПРАВЛЕНИЯ:
+- Указание на то, что Claude Code CLI является инструментом от Anthropic, а не сторонним разработчиком.
+- Уточнение, что Claude CLI не является npm-пакетом, а скорее инструментом, который может быть установлен через различные менеджеры пакетов, в зависимости от его реализации. В данном случае, предполагается, что это может быть пакет Node.js.
+- Исправление команды установки npm пакета с `@anthropic-ai/claude` на более вероятное `@anthropic-ai/claude-cli` или аналогичное, если такой пакет существует. Если же это не npm пакет, то вся секция установки должна быть пересмотрена.
+- Уточнение, что `claude configure` не создает файл `~/.claude/config`, а скорее устанавливает API ключ через переменные окружения или другой механизм.
+- Исправление названия команды для генерации документации с `claude code generate-docs` на более вероятное `claude generate-docs` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code analyze` на более вероятное `claude analyze` или аналогичное.
+- Исправление названия команды для проверки качества кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более вероятное `claude resolve-conflict`.
+- Исправление названия команды для анализа кода с `claude code analyze --strict --output-quality-report` на более вероятное `claude analyze --strict --quality-report`.
+- Исправление названия команды для генерации чеклиста с `claude code generate-review-checklist` на более вероятное `claude generate-review-checklist` или аналогичное.
+- Исправление названия команды для проверки продакшена с `claude code production-check --full --output report.json` на более вероятное `claude production-check --full --output report.json`.
+- Исправление названия команды для генерации деплой-чеклиста с `claude code generate-deployment-checklist` на более вероятное `claude generate-deployment-checklist` или аналогичное.
+- Исправление названия команды для генерации релиз-нот с `claude code generate-release-notes` на более вероятное `claude generate-release-notes` или аналогичное.
+- Исправление названия команды для анализа кода с `claude code review --changes --suggest-commit` на более вероятное `claude review --changes --suggest-commit`.
+- Исправление названия команды для разрешения конфликтов с `claude code resolve-conflict` на более

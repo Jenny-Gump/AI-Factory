@@ -38,8 +38,8 @@ python3 batch_processor.py topics.txt --generate-model openai/gpt-4o
 
 ### WordPress настройки
 - **Сайт**: https://ailynx.ru
-- **Аккаунт**: admin (основной аккаунт)
-- **Категория**: "basic-articles" (создается автоматически)
+- **Аккаунт**: PetrovA (основной аккаунт)
+- **Категория**: "prompts" (ID: 825)
 - **Статус**: draft (для безопасности)
 - **Кодировка**: UTF-8, русский язык
 - **Публикация**: Автоматическая по умолчанию в main.py

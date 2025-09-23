@@ -118,10 +118,18 @@ def _parse_json_from_response(response_content: str) -> Any:
     - Control characters in editorial review responses
     """
     response_content = response_content.strip()
-    
+
     if not response_content:
         logger.error("Empty response content")
         return []
+
+    # FIRST: Remove markdown code blocks if present (before any parsing attempts)
+    if response_content.startswith('```json\n') and response_content.endswith('\n```'):
+        response_content = response_content[8:-4].strip()
+        logger.info("Removed ```json markdown wrapper")
+    elif response_content.startswith('```\n') and response_content.endswith('\n```'):
+        response_content = response_content[4:-4].strip()
+        logger.info("Removed ``` markdown wrapper")
     
     # Attempt 1: Parse as-is
     try:
@@ -156,13 +164,7 @@ def _parse_json_from_response(response_content: str) -> Any:
 
         # Generic fix for missing colons in JSON keys
         fixed_content = re.sub(r'"([^"]+): (["\[\{])', r'"\1": \2', fixed_content)
-        
-        # Remove code block wrappers if present
-        if fixed_content.startswith('```json\n') and fixed_content.endswith('\n```'):
-            fixed_content = fixed_content[8:-4].strip()
-        elif fixed_content.startswith('```\n') and fixed_content.endswith('\n```'):
-            fixed_content = fixed_content[4:-4].strip()
-        
+
         # Fix control characters that cause "Invalid control character" errors
         # Replace unescaped control characters within JSON string values
         fixed_content = re.sub(r'(:\s*")([^"]*?)(")', lambda m: m.group(1) + m.group(2).replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t') + m.group(3), fixed_content)
@@ -202,7 +204,7 @@ def _parse_json_from_response(response_content: str) -> Any:
             return parsed
         elif isinstance(parsed, dict):
             logger.info("Successfully parsed JSON after enhanced preprocessing")
-            return parsed
+            return parsed.get("data", [parsed])  # Apply consistent wrapping logic
         else:
             return []
     except json.JSONDecodeError as e:
@@ -254,9 +256,9 @@ def _parse_json_from_response(response_content: str) -> Any:
         return []
 
 
-def _load_and_prepare_messages(article_type: str, prompt_name: str, replacements: Dict[str, str]) -> List[Dict]:
+def _load_and_prepare_messages(content_type: str, prompt_name: str, replacements: Dict[str, str]) -> List[Dict]:
     """Loads a prompt template, performs replacements, and splits into messages."""
-    path = os.path.join("prompts", article_type, f"{prompt_name}.txt")
+    path = os.path.join("prompts", content_type, f"{prompt_name}.txt")
     try:
         with open(path, 'r', encoding='utf-8') as f:
             template = f.read()
@@ -500,7 +502,7 @@ def _make_llm_request_with_retry(stage_name: str, model_name: str, messages: lis
 
 def extract_prompts_from_article(article_text: str, topic: str, base_path: str = None,
                                  source_id: str = None, token_tracker: TokenTracker = None,
-                                 model_name: str = None) -> List[Dict]:
+                                 model_name: str = None, content_type: str = "basic_articles") -> List[Dict]:
     """Extracts structured prompt data from a single article text.
 
     Args:
@@ -514,7 +516,7 @@ def extract_prompts_from_article(article_text: str, topic: str, base_path: str =
     logger.info("Extracting prompts from one article...")
     try:
         messages = _load_and_prepare_messages(
-            "basic_articles",
+            content_type,
             "01_extract",
             {"topic": topic, "article_text": article_text}
         )
@@ -559,7 +561,7 @@ def extract_prompts_from_article(article_text: str, topic: str, base_path: str =
 
 async def _generate_single_section_async(section: Dict, idx: int, topic: str,
                                         sections_path: str, model_name: str,
-                                        token_tracker: TokenTracker) -> Dict:
+                                        token_tracker: TokenTracker, content_type: str = "basic_articles") -> Dict:
     """Generates a single section asynchronously with proper timeout and fallback handling."""
     section_num = f"section_{idx}"
     section_title = section.get('section_title', f'Section {idx}')
@@ -583,7 +585,7 @@ async def _generate_single_section_async(section: Dict, idx: int, topic: str,
 
             # Prepare section-specific prompt
             messages = _load_and_prepare_messages(
-                "basic_articles",
+                content_type,
                 "01_generate_section",
                 {
                     "topic": topic,
@@ -663,7 +665,7 @@ async def _generate_single_section_async(section: Dict, idx: int, topic: str,
 
 
 def generate_article_by_sections(structure: List[Dict], topic: str, base_path: str = None,
-                                 token_tracker: TokenTracker = None, model_name: str = None) -> Dict[str, Any]:
+                                 token_tracker: TokenTracker = None, model_name: str = None, content_type: str = "basic_articles") -> Dict[str, Any]:
     """Generates WordPress article by processing sections SEQUENTIALLY without any async operations.
 
     Args:
@@ -726,7 +728,7 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
 
                 # Prepare section-specific prompt
                 messages = _load_and_prepare_messages(
-                    "basic_articles",
+                    content_type,
                     "01_generate_section",
                     {
                         "topic": topic,
@@ -839,7 +841,7 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
 
 
 def generate_article_by_sections_OLD_ASYNC(structure: List[Dict], topic: str, base_path: str = None,
-                                 token_tracker: TokenTracker = None, model_name: str = None) -> Dict[str, Any]:
+                                 token_tracker: TokenTracker = None, model_name: str = None, content_type: str = "basic_articles") -> Dict[str, Any]:
     """Generates WordPress article by processing sections in parallel with staggered starts.
 
     Args:
@@ -1211,7 +1213,7 @@ def merge_sections(sections: List[Dict], topic: str, structure: List[Dict]) -> D
 
 
 def editorial_review(raw_response: str, topic: str, base_path: str = None,
-                    token_tracker: TokenTracker = None, model_name: str = None) -> Dict[str, Any]:
+                    token_tracker: TokenTracker = None, model_name: str = None, content_type: str = "basic_articles") -> Dict[str, Any]:
     """
     Performs editorial review and cleanup of WordPress article data.
 
@@ -1242,7 +1244,7 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
     # Call LLM for editorial review
     try:
         messages = _load_and_prepare_messages(
-            "basic_articles",
+            content_type,
             "02_editorial_review",
             {
                 "raw_response": raw_response,

@@ -3,6 +3,7 @@ import sys
 import os
 import json
 import re
+import argparse
 from src.logger_config import logger
 from src.firecrawl_client import FirecrawlClient
 from src.processing import (
@@ -24,6 +25,7 @@ from src.llm_processing import (
 from src.wordpress_publisher import WordPressPublisher
 from src.token_tracker import TokenTracker
 from src.config import LLM_MODELS
+from batch_config import CONTENT_TYPES, get_content_type_config
 from typing import Dict
 
 def sanitize_filename(topic):
@@ -41,9 +43,10 @@ def save_artifact(data, path, filename):
             json.dump(data, f, indent=4, ensure_ascii=False)
     logger.info(f"Saved artifact to {filepath}")
 
-async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True):
+async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True, content_type: str = "basic_articles"):
     """
     Simplified pipeline for generating basic articles with FAQ and sources.
+    Improved pipeline with configurable content type for different prompt sets.
     Этапы: 1-6 поиск/очистка → 7 структуры → 8 ультимативная → 9 генерация → 10 редактура → 10.5 ссылки → 11 публикация
     """
     logger.info(f"--- Starting Basic Articles Pipeline for topic: '{topic}' ---")
@@ -140,7 +143,8 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True)
                     base_path=paths["structure_extraction"],
                     source_id=source_id,
                     token_tracker=token_tracker,
-                    model_name=active_models.get("extract_prompts")
+                    model_name=active_models.get("extract_prompts"),
+                    content_type=content_type
                 )
                 results.append(result)
             except Exception as e:
@@ -192,7 +196,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True)
     logger.info("Creating ultimate structure from extracted structures...")
 
     messages = _load_and_prepare_messages(
-        "basic_articles",
+        content_type,
         "02_create_ultimate_structure",
         {"topic": topic, "article_text": json.dumps(all_structures, indent=2)}
     )
@@ -231,7 +235,8 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True)
         topic=topic,
         base_path=paths["final_article"],
         token_tracker=token_tracker,
-        model_name=active_models.get("generate_article")
+        model_name=active_models.get("generate_article"),
+        content_type=content_type
     )
 
     save_artifact(wordpress_data, paths["final_article"], "wordpress_data.json")
@@ -250,7 +255,8 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True)
         topic=topic,
         base_path=paths["editorial_review"],
         token_tracker=token_tracker,
-        model_name=active_models.get("editorial_review")
+        model_name=active_models.get("editorial_review"),
+        content_type=content_type
     )
 
     save_artifact(wordpress_data_final, paths["editorial_review"], "wordpress_data_final.json")
@@ -281,7 +287,8 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True)
                 topic=topic,
                 base_path=paths["links"],
                 token_tracker=token_tracker,
-                active_models=active_models
+                active_models=active_models,
+                content_type=content_type
             )
             logger.info("✅ process_links завершен успешно")
 
@@ -341,23 +348,38 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True)
     token_tracker.save_token_report(base_output_path)
     logger.info(f"Token usage report: {token_report_path}")
 
-async def main_flow(topic: str, model_overrides: Dict = None, publish_to_wordpress: bool = True):
+async def main_flow(topic: str, model_overrides: Dict = None, publish_to_wordpress: bool = True, content_type: str = "basic_articles"):
     """Async wrapper function for batch processor compatibility"""
-    return await basic_articles_pipeline(topic, publish_to_wordpress)
+    return await basic_articles_pipeline(topic, publish_to_wordpress, content_type)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python main.py \"Your topic here\"")
-        print("Example: python main.py \"Best AI tools for content creation in 2024\"")
+    parser = argparse.ArgumentParser(description='Content Factory Pipeline')
+    parser.add_argument('topic', help='Topic for content generation')
+    parser.add_argument('--content-type', choices=list(CONTENT_TYPES.keys()),
+                       default='basic_articles', help='Type of content to generate')
+    parser.add_argument('--skip-publication', action='store_true',
+                       help='Skip WordPress publication')
+
+    args = parser.parse_args()
+
+    # Validate content type
+    try:
+        content_config = get_content_type_config(args.content_type)
+        logger.info(f"Using content type: {args.content_type} - {content_config['description']}")
+    except ValueError as e:
+        logger.error(f"Invalid content type: {e}")
         sys.exit(1)
 
-    topic = sys.argv[1]
-    logger.info(f"Starting pipeline for topic: {topic}")
+    publish_to_wordpress = not args.skip_publication
+
+    logger.info(f"Starting pipeline for topic: {args.topic}")
+    logger.info(f"Content type: {args.content_type}")
+    logger.info(f"WordPress publication: {'enabled' if publish_to_wordpress else 'disabled'}")
 
     import asyncio
 
     try:
-        asyncio.run(basic_articles_pipeline(topic))
+        asyncio.run(basic_articles_pipeline(args.topic, publish_to_wordpress, args.content_type))
         logger.info("✅ Pipeline completed successfully")
     except KeyboardInterrupt:
         logger.info("\\n🛑 Pipeline interrupted by user")

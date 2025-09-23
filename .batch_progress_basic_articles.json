@@ -1,21 +1,22 @@
 {
   "content_type": "basic_articles",
   "topics_file": "topics_basic_articles.txt",
-  "total_topics": 2,
+  "total_topics": 3,
   "completed_topics": [
     "Generate Knowledge (GK) prompting technique guide, template, best practices",
-    "Prompt Chaining prompting technique guide, template, best practices"
+    "Prompt Chaining prompting technique guide, template, best practices",
+    "Self-Consistency prompting technique guide, template, best practices"
   ],
   "failed_topics": [],
   "current_topic": null,
-  "start_time": "2025-09-20T19:47:56.736157",
-  "last_update_time": "2025-09-20T21:19:53.911459",
+  "start_time": "2025-09-23T13:55:40.354040",
+  "last_update_time": "2025-09-23T16:28:51.972507",
   "topic_statuses": {
     "Generate Knowledge (GK) prompting technique guide, template, best practices": {
       "topic": "Generate Knowledge (GK) prompting technique guide, template, best practices",
       "status": "completed",
-      "start_time": "2025-09-20T19:47:56.736529",
-      "end_time": "2025-09-20T20:35:17.848741",
+      "start_time": "2025-09-23T13:55:40.354282",
+      "end_time": "2025-09-23T14:43:49.271588",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
@@ -24,8 +25,18 @@
     "Prompt Chaining prompting technique guide, template, best practices": {
       "topic": "Prompt Chaining prompting technique guide, template, best practices",
       "status": "completed",
-      "start_time": "2025-09-20T20:35:22.901445",
-      "end_time": "2025-09-20T21:19:48.865208",
+      "start_time": "2025-09-23T14:43:54.331609",
+      "end_time": "2025-09-23T15:40:37.105303",
+      "attempts": 1,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Self-Consistency prompting technique guide, template, best practices": {
+      "topic": "Self-Consistency prompting technique guide, template, best practices",
+      "status": "completed",
+      "start_time": "2025-09-23T15:40:42.194539",
+      "end_time": "2025-09-23T16:28:46.893650",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,

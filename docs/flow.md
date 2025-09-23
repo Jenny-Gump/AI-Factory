@@ -761,3 +761,82 @@ ERROR: Expecting value: line 5241 column 1 (char 28820)
 3. **Историчность:** Сохраняются все попытки для анализа паттернов
 4. **Автономность:** Работает без дополнительных действий разработчика
 5. **Структурированность:** Файлы организованы по этапам и времени
+
+---
+
+## TROUBLESHOOTING
+
+### Частые проблемы и решения
+
+#### 1. **Ошибка парсинга JSON от LLM**
+**Симптомы:** `json.decoder.JSONDecodeError`
+**Решение:**
+- Проверьте `output/{topic}/*/llm_responses_raw/*.txt`
+- Убедитесь что промпт требует JSON формат
+- Проверьте fallback модели в config.py
+
+#### 2. **Таймаут при парсинге сайтов**
+**Симптомы:** Зависание на этапе 2 (Parse)
+**Решение:**
+- Увеличьте таймаут в src/config.py: `SECTION_TIMEOUT = 300`
+- Проверьте блокировки на Firecrawl API
+
+#### 3. **Недостаточно источников после фильтрации**
+**Симптомы:** "После фильтрации осталось 0 источников"
+**Решение:**
+- Проверьте `filters/blocked_domains.json`
+- Уменьшите `MIN_CONTENT_LENGTH` в config.py
+- Расширьте поисковый запрос
+
+#### 4. **Ошибка публикации в WordPress**
+**Симптомы:** 401 Unauthorized или 403 Forbidden
+**Решение:**
+- Проверьте `WORDPRESS_APP_PASSWORD` в .env
+- Убедитесь что Application Passwords включены
+- Проверьте права пользователя
+
+#### 5. **Превышен лимит токенов**
+**Симптомы:** "Request too large" от API
+**Решение:**
+- Уменьшите `TOP_N_SOURCES` до 3-4
+- Сократите промпты в `prompts/{type}/`
+- Используйте более компактные модели
+
+#### 6. **Дублирование контента в секциях**
+**Симптомы:** Повторяющийся текст в разных секциях
+**Решение:**
+- Проверьте промпты генерации в `prompts/{type}/generate_article.md`
+- Убедитесь что каждая секция имеет уникальный фокус
+
+### Полезные команды для отладки
+
+```bash
+# Проверить последние ошибки
+grep -r "ERROR" output/*/logs/
+
+# Найти все неудачные LLM запросы
+find output -name "*attempt[2-9]*" -type f
+
+# Проверить размеры контента
+find output -name "cleaned_content.txt" -exec wc -l {} \;
+
+# Валидация JSON ответов
+python -m json.tool output/{topic}/*/llm_responses_raw/*.txt
+
+# Тест соединения с WordPress
+curl -u "PetrovA:APP_PASSWORD" https://ailynx.ru/wp-json/wp/v2/posts
+```
+
+### Логи и диагностика
+
+**Основные логи:**
+- `output/{topic}/logs/pipeline.log` - общий лог пайплайна
+- `output/{topic}/*/llm_responses_raw/` - сырые ответы LLM
+- `batch_failed_topics.txt` - список неудачных тем (batch mode)
+
+**Переменные окружения для отладки:**
+```bash
+export DEBUG_MODE=true        # Подробное логирование
+export SKIP_WORDPRESS=true    # Пропустить публикацию
+export USE_FALLBACK_ONLY=true # Использовать только fallback модели
+```

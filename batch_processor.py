@@ -214,7 +214,8 @@ class BatchProcessor:
                 main_flow(
                     topic=topic,
                     model_overrides=self.model_overrides,
-                    publish_to_wordpress=not self.skip_publication
+                    publish_to_wordpress=not self.skip_publication,
+                    content_type=self.content_type
                 )
             )
             

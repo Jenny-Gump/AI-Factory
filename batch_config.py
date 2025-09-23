@@ -35,6 +35,20 @@ CONTENT_TYPES = {
         "default_topics_file": "topics_basic_articles.txt",
         "output_prefix": "article_",
         "wordpress_category": "articles"
+    },
+    "guides": {
+        "prompts_folder": "prompts/guides",
+        "description": "Comprehensive step-by-step guides and tutorials",
+        "default_topics_file": "topics_guides.txt",
+        "output_prefix": "guide_",
+        "wordpress_category": "guides"
+    },
+    "reviews": {
+        "prompts_folder": "prompts/reviews",
+        "description": "Detailed reviews and analysis of tools/services",
+        "default_topics_file": "topics_reviews.txt",
+        "output_prefix": "review_",
+        "wordpress_category": "reviews"
     }
 }
 

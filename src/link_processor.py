@@ -48,7 +48,7 @@ class LinkProcessor:
             }
 
     def process_links(self, wordpress_data: Dict[str, Any], topic: str, base_path: str,
-                          token_tracker: TokenTracker, active_models: Dict[str, str]) -> Dict[str, Any]:
+                          token_tracker: TokenTracker, active_models: Dict[str, str], content_type: str = "basic_articles") -> Dict[str, Any]:
         """
         Main entry point for link processing pipeline.
 
@@ -58,6 +58,7 @@ class LinkProcessor:
             base_path: Base path for saving artifacts
             token_tracker: Token usage tracker
             active_models: Active model configuration
+            content_type: Content type for prompt selection (basic_articles, guides, etc.)
 
         Returns:
             Updated wordpress_data with processed links
@@ -73,7 +74,7 @@ class LinkProcessor:
             logger.info("Step 1: Creating link plan...")
             link_plan, draft_with_markers = self.create_link_plan(
                 wordpress_data.get('content', ''), topic, base_path, token_tracker,
-                active_models.get('link_planning', active_models.get('extract_prompts'))
+                active_models.get('link_planning', active_models.get('extract_prompts')), content_type
             )
 
             if not link_plan:
@@ -109,7 +110,7 @@ class LinkProcessor:
             return wordpress_data
 
     def create_link_plan(self, html_content: str, topic: str, base_path: str,
-                             token_tracker: TokenTracker, model_name: str) -> Tuple[List[Dict], str]:
+                             token_tracker: TokenTracker, model_name: str, content_type: str = "basic_articles") -> Tuple[List[Dict], str]:
         """
         Step 1: Generate link plan with retries for JSON parsing errors.
 
@@ -121,7 +122,7 @@ class LinkProcessor:
 
         # Load and prepare LLM messages
         messages = _load_and_prepare_messages(
-            "basic_articles",
+            content_type,
             "01_5_link_planning",
             {"topic": topic, "html_content": prepared_html}
         )
@@ -908,16 +909,22 @@ class LinkProcessor:
             Best character position to insert marker, or -1 if not found
         """
         logger.debug(f"Finding insertion point for anchor_text: '{anchor_text}'")
+        logger.debug(f"  context_before: '{context_before}'")
+        logger.debug(f"  context_after: '{context_after}'")
 
         # Try to find using full context first (most precise)
         if context_before and context_after:
             search_pattern = context_before + anchor_text + context_after
+            logger.debug(f"  Searching for full pattern: '{search_pattern}'")
             pattern_pos = text.find(search_pattern)
             if pattern_pos != -1:
                 # Calculate position right after anchor_text
                 anchor_start = pattern_pos + len(context_before)
                 anchor_end = anchor_start + len(anchor_text)
-                return self._adjust_position_to_avoid_tags(text, anchor_end)
+                logger.debug(f"  Found full pattern at pos {pattern_pos}, anchor_end at {anchor_end}")
+                adjusted_pos = self._adjust_position_to_avoid_tags(text, anchor_end)
+                logger.debug(f"  Adjusted position: {adjusted_pos}")
+                return adjusted_pos
 
         # Fallback to anchor_text with partial context
         if context_before:
@@ -974,22 +981,67 @@ class LinkProcessor:
         for ending in sentence_endings:
             end_pos = window.find(ending, max(0, rel_pos - 10), min(len(window), rel_pos + 10))
             if end_pos != -1:
-                return window_start + end_pos + len(ending) - 1
+                # Return position AFTER the sentence ending
+                candidate_pos = window_start + end_pos + len(ending)
+                # Ensure we're not inside a tag
+                if self._is_safe_position(text, candidate_pos):
+                    return candidate_pos
 
         # Look for punctuation (medium priority)
         punctuation_marks = [', ', '; ', ') ', ' – ', ' — ']
         for punct in punctuation_marks:
             punct_pos = window.find(punct, max(0, rel_pos - 10), min(len(window), rel_pos + 10))
             if punct_pos != -1:
-                return window_start + punct_pos + len(punct) - 1
+                # Return position AFTER the punctuation
+                candidate_pos = window_start + punct_pos + len(punct)
+                # Ensure we're not inside a tag
+                if self._is_safe_position(text, candidate_pos):
+                    return candidate_pos
 
         # Look for word boundaries (lowest priority)
         for i in range(max(0, rel_pos - 5), min(len(window), rel_pos + 5)):
             if i < len(window) and window[i] == ' ' and i > 0 and window[i-1].isalnum():
-                return window_start + i
+                candidate_pos = window_start + i
+                # Ensure we're not inside a tag
+                if self._is_safe_position(text, candidate_pos):
+                    return candidate_pos
 
         # If nothing found, return original position
         return target_pos
+
+    def _is_safe_position(self, text: str, position: int) -> bool:
+        """
+        Check if a position is safe for marker insertion (not inside HTML tags).
+
+        Args:
+            text: Full HTML content
+            position: Position to check
+
+        Returns:
+            True if position is safe, False if inside a tag
+        """
+        # Check if we're inside a tag
+        tag_start = text.rfind('<', 0, position)
+        tag_end = text.rfind('>', 0, position)
+
+        # If we're inside a tag (< comes after >), position is not safe
+        if tag_start > tag_end:
+            return False
+
+        # Additional check: look for pattern like "</p><p>" to avoid inserting between tags
+        window_start = max(0, position - 5)
+        window_end = min(len(text), position + 5)
+        window = text[window_start:window_end]
+
+        # Don't place markers right between closing and opening tags
+        if '><' in window:
+            rel_pos = position - window_start
+            # Check if position is right at the boundary
+            for i in range(len(window) - 1):
+                if window[i:i+2] == '><' and abs(i + 1 - rel_pos) <= 1:
+                    return False
+
+        return True
 
     def _insert_markers_with_smart_positioning(self, html_content: str, link_plan: List[Dict]) -> str:
         """

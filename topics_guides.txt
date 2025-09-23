@@ -1,0 +1,2 @@
+claude code cli step by step guide for beginners 
+Deepseek local model installation guide step by step for beginners 

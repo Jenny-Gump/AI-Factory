@@ -24,25 +24,25 @@ DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # WordPress - для автоматической публикации
 WORDPRESS_URL=https://ailynx.ru
-WORDPRESS_USERNAME=admin
+WORDPRESS_USERNAME=PetrovA
 WORDPRESS_APP_PASSWORD=xxxx xxxx xxxx xxxx
 ```
 
 ##  Модели LLM
 
-### Основные модели (DeepSeek FREE + Grok-4-Fast):
+### Основные модели (DeepSeek FREE):
 ```python
 LLM_MODELS = {
     "extract_prompts": "deepseek/deepseek-chat-v3.1:free",
     "create_structure": "deepseek/deepseek-chat-v3.1:free",
     "generate_article": "deepseek/deepseek-chat-v3.1:free",
-    "editorial_review": "x-ai/grok-4-fast:free",        # NEW: Grok-4-Fast для редактуры
+    "editorial_review": "deepseek/deepseek-chat-v3.1:free",
     "link_planning": "deepseek/deepseek-chat-v3.1:free",
     "link_selection": "deepseek/deepseek-chat-v3.1:free",
 }
 ```
 
-### Fallback модели (Gemini 2.5):
+### Fallback модели (Gemini 2.5 Flash Lite):
 ```python
 FALLBACK_MODELS = {
     "extract_prompts": "google/gemini-2.5-flash-lite-preview-06-17",
@@ -153,9 +153,34 @@ LLM_PROVIDERS = {
             "openai/gpt-4o",
             "openai/gpt-4o-mini",
             "google/gemini-2.5-flash-lite-preview-06-17",
-            "deepseek/deepseek-chat-v3.1:free",
-            "x-ai/grok-4-fast:free"  # NEW: Grok-4-Fast через OpenRouter
+            "deepseek/deepseek-chat-v3.1:free"
         ]
+    }
+}
+```
+
+## Batch Processing настройки
+
+```python
+# batch_config.py
+BATCH_CONFIG = {
+    "max_memory_mb": 2048,               # Максимальное использование памяти
+    "max_concurrent_requests": 5,        # Параллельные HTTP запросы
+    "retry_failed_topics": 2,            # Повторы для неудачных тем
+    "retry_delay_seconds": 60,           # Задержка между повторами
+    "autosave_interval": 300,            # Автосохранение каждые 5 минут
+    "verify_publication_before_next": True  # Проверка публикации
+}
+
+# Типы контента
+CONTENT_TYPES = {
+    "basic_articles": {
+        "prompts_folder": "prompts/basic_articles",
+        "wordpress_category": "articles"
+    },
+    "guides": {
+        "prompts_folder": "prompts/guides",
+        "wordpress_category": "guides"
     }
 }
 ```
