@@ -115,10 +115,14 @@ def select_best_sources(scored_sources: List[Dict[str, Any]]) -> List[Dict[str, 
     """
     if not scored_sources:
         return []
-        
+
     logger.info("Selecting the best sources.")
+    logger.info(f"Input sources count: {len(scored_sources)}")
+
     max_relevance = max((s.get("relevance_score", 0) for s in scored_sources), default=1) or 1
     max_depth = max((s.get("depth_score", 0) for s in scored_sources), default=1) or 1
+
+    logger.info(f"Max relevance: {max_relevance}, Max depth: {max_depth}")
 
     for source in scored_sources:
         source["normalized_relevance"] = source.get("relevance_score", 0) / max_relevance
@@ -130,13 +134,32 @@ def select_best_sources(scored_sources: List[Dict[str, Any]]) -> List[Dict[str, 
             source["normalized_depth"] * DEPTH_SCORE_WEIGHT
         )
 
+        # Debug specific source
+        if "anthropic.com" in source.get("url", ""):
+            logger.info(f"ANTHROPIC.COM CALCULATION:")
+            logger.info(f"  URL: {source.get('url')}")
+            logger.info(f"  trust_score: {source.get('trust_score')}")
+            logger.info(f"  relevance_score: {source.get('relevance_score')} -> normalized: {source['normalized_relevance']:.3f}")
+            logger.info(f"  depth_score: {source.get('depth_score')} -> normalized: {source['normalized_depth']:.3f}")
+            logger.info(f"  final_score: {source['final_score']}")
+
     sorted_sources = sorted(scored_sources, key=lambda x: x.get("final_score", 0), reverse=True)
+
+    # Debug: Show ALL sources sorted by final_score
+    logger.info("ALL SOURCES SORTED BY FINAL_SCORE:")
+    for i, source in enumerate(sorted_sources):
+        logger.info(f"   {i+1:2}. {source.get('final_score', 0):.6f} - {source.get('url', 'N/A')}")
+
+    # Check if anthropic.com is present
+    anthropic_present = any("anthropic.com" in s.get("url", "") for s in sorted_sources)
+    logger.info(f"Anthropic.com present in sorted_sources: {anthropic_present}")
+
     top_sources = sorted_sources[:TOP_N_SOURCES]
-    
-    logger.info(f"Selected top {len(top_sources)} sources.")
+
+    logger.info("Selected top 5 sources.")
     for i, source in enumerate(top_sources):
         logger.info(f"  {i+1}. {source.get('url', 'N/A')} (Score: {source.get('final_score', 0):.2f})")
-        
+
     return top_sources
 
 def clean_content(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
