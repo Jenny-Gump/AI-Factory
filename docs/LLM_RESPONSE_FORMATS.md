@@ -51,6 +51,10 @@
 
 ### 3. Editorial Review
 **Ожидаемый формат**: ОБЪЕКТ с метаданными
+**Модель**: `perplexity/sonar-reasoning-pro:online` (с web search для fact-checking)
+**⚠️ ВАЖНО**: Perplexity модели НЕ поддерживают параметр `response_format`!
+**⚠️ КРИТИЧНО**: Для веб-поиска ОБЯЗАТЕЛЬНО использовать суффикс `:online`!
+
 ```json
 {
     "title": "string",
@@ -61,6 +65,11 @@
 }
 ```
 **Обработка**: Возвращать как есть если имеет поля контента.
+
+**Совместимость с API параметрами**:
+- ✅ DeepSeek/Gemini: Поддерживают `response_format: {"type": "json_object"}`
+- ❌ Perplexity: НЕ поддерживает `response_format` → 400 error
+- ⚠️ Perplexity WEB SEARCH: Только модели с суффиксом `:online` выполняют поиск!
 
 ### 4. Link Processing
 **Ожидаемый формат**: ОБЪЕКТ с планом ссылок
@@ -134,14 +143,31 @@ INPUT:  {"data": [{"section_title": "..."}]}
 OUTPUT: [{"section_title": "..."}]  (Извлечь data)
 ```
 
+## Совместимость API параметров по моделям
+
+### response_format поддержка:
+- ✅ **DeepSeek**: Поддерживает `{"type": "json_object"}`
+- ✅ **Gemini**: Поддерживает `{"type": "json_object"}`
+- ❌ **Perplexity**: НЕ поддерживает `response_format` (400 error)
+
+### Логика в llm_processing.py:
+```python
+# Only add response_format for non-perplexity models
+current_model = model_name or LLM_MODELS.get(stage, DEFAULT_MODEL)
+if not current_model.startswith("perplexity/"):
+    request_params["response_format"] = {"type": "json_object"}
+```
+
 ## При добавлении новых этапов
 
 1. **Определить дефолтный формат** в промпте
-2. **Добавить detection rule** в функцию парсинга если нужна особая логика
-3. **Обновить этот документ** с новым форматом
-4. **Протестировать** на реальных данных
+2. **Проверить совместимость модели** с API параметрами
+3. **Добавить detection rule** в функцию парсинга если нужна особая логика
+4. **Обновить этот документ** с новым форматом
+5. **Протестировать** на реальных данных
 
 ## История изменений
 
 - **2025-09-24**: Создан документ после исправления проблемы с двойным оборачиванием ultimate_structure
 - Исправлена логика в `_parse_json_from_response` для корректного определения форматов
+- **2025-09-25**: Добавлена документация по совместимости Perplexity моделей с response_format параметром

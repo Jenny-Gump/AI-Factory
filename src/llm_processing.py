@@ -1297,16 +1297,23 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
             }
         )
 
+        # Prepare request parameters
+        request_params = {
+            "stage_name": "editorial_review",
+            "model_name": model_name,
+            "messages": messages,
+            "token_tracker": token_tracker,
+            "base_path": base_path,
+            "temperature": 0.2,  # Lower temperature for more consistent editing
+        }
+
+        # Only add response_format for non-perplexity models (perplexity doesn't support it)
+        current_model = model_name or LLM_MODELS.get("editorial_review", DEFAULT_MODEL)
+        if not current_model.startswith("perplexity/"):
+            request_params["response_format"] = {"type": "json_object"}  # Enforce JSON response
+
         # Use new retry system
-        response_obj, actual_model = _make_llm_request_with_retry(
-            stage_name="editorial_review",
-            model_name=model_name,
-            messages=messages,
-            token_tracker=token_tracker,
-            base_path=base_path,
-            temperature=0.2,  # Lower temperature for more consistent editing
-            response_format={"type": "json_object"}  # Enforce JSON response
-        )
+        response_obj, actual_model = _make_llm_request_with_retry(**request_params)
         response = response_obj.choices[0].message.content
 
         # Save LLM interaction for debugging

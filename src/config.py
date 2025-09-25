@@ -62,7 +62,7 @@ LLM_MODELS = {
     "extract_prompts": "deepseek/deepseek-chat-v3.1:free",              # FREE Model for prompt extraction from articles
     "create_structure": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for creating ultimate structure (basic_articles)
     "generate_article": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for WordPress article generation
-    "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for editorial review and cleanup
+    "editorial_review": "perplexity/sonar-reasoning-pro:online",        # Perplexity for editorial review WITH fact-checking via web search
     "link_planning": "deepseek/deepseek-chat-v3.1:free",                # FREE Model for link planning
     "link_selection": "deepseek/deepseek-chat-v3.1:free",               # FREE Model for link selection from candidates
 }
@@ -113,6 +113,8 @@ LLM_PROVIDERS = {
             "google/gemini-2.0-flash-001",
             "google/gemini-2.5-flash-lite-preview-06-17",
             "deepseek/deepseek-chat-v3.1:free",
+            "perplexity/sonar-reasoning-pro",
+            "perplexity/sonar-reasoning-pro:online",
             "x-ai/grok-4-fast:free"
         ],
         "extra_headers": {
