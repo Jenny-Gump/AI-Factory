@@ -107,15 +107,18 @@ def save_llm_interaction(base_path: str, stage_name: str, messages: List[Dict],
     except Exception as e:
         logger.error(f"Failed to save LLM interaction: {e}")
 
-def _parse_json_from_response(response_content: str) -> Any:
+def _parse_json_from_response(response_content: str, stage_context: str = "unknown") -> Any:
     """
-    Robustly parses JSON from LLM response, handling various formats:
-    - Single objects: {...}
-    - Arrays: [{...}, {...}]
-    - Objects with data wrapper: {"data": [...]}
-    - Malformed JSON with common errors
-    - Escape character issues from LLM responses
-    - Control characters in editorial review responses
+    УМНАЯ ПАРСИНГ ФУНКЦИЯ с логикой определения нужного формата.
+
+    ДЕФОЛТНЫЕ ФОРМАТЫ ПО ЭТАПАМ:
+    - ultimate_structure: объект {"article_structure": [...], "writing_guidelines": {...}}
+    - extract_prompts: массив структур [{"section_title": ..., ...}, ...]
+    - other stages: чаще массив, иногда объект
+
+    Args:
+        response_content: Сырой ответ от LLM
+        stage_context: Контекст этапа для определения ожидаемого формата
     """
     response_content = response_content.strip()
 
@@ -130,22 +133,38 @@ def _parse_json_from_response(response_content: str) -> Any:
     elif response_content.startswith('```\n') and response_content.endswith('\n```'):
         response_content = response_content[4:-4].strip()
         logger.info("Removed ``` markdown wrapper")
-    
-    # Attempt 1: Parse as-is
+
+    # Attempt 1: Parse as-is and apply SMART FORMATTING
     try:
         parsed = json.loads(response_content)
+
         if isinstance(parsed, list):
+            logger.info("Parsed valid array - returning as-is")
             return parsed
         elif isinstance(parsed, dict):
-            return parsed.get("data", [parsed])  # If has data key, use it; otherwise wrap single object
+            # SMART LOGIC: Определяем нужен ли фоллбек по содержимому
+
+            # Для ultimate_structure - ожидаем объект с article_structure + writing_guidelines
+            if "article_structure" in parsed and "writing_guidelines" in parsed:
+                logger.info("Detected ultimate_structure format - returning object as-is")
+                return parsed  # НЕ ОБОРАЧИВАЕМ! Возвращаем как есть
+
+            # Если есть ключ data - используем его содержимое
+            elif "data" in parsed:
+                logger.info("Found 'data' key - extracting content")
+                return parsed["data"]
+
+            # Иначе это одиночный объект структуры - оборачиваем в массив для обратной совместимости
+            else:
+                logger.info("Single structure object - wrapping in array")
+                return [parsed]
         else:
+            logger.warning(f"Unexpected parsed type: {type(parsed)}")
             return []
+
     except json.JSONDecodeError as e:
         logger.warning(f"Standard JSON parsing failed: {e}")
-
-        # СОХРАНЕНИЕ ПОВРЕЖДЕННОГО JSON будет в папке этапа при вызове из функций с base_path
-        logger.error(f"JSON parsing failed: {e} - Response length: {len(response_content)}")
-
+        # Продолжаем к фоллбекам
         pass
     
     # Attempt 1.5: Enhanced JSON preprocessing (for editorial review control characters)
@@ -204,7 +223,16 @@ def _parse_json_from_response(response_content: str) -> Any:
             return parsed
         elif isinstance(parsed, dict):
             logger.info("Successfully parsed JSON after enhanced preprocessing")
-            return parsed.get("data", [parsed])  # Apply consistent wrapping logic
+
+            # APPLY SAME SMART LOGIC as in Attempt 1
+            # Для ultimate_structure - ожидаем объект с article_structure + writing_guidelines
+            if "article_structure" in parsed and "writing_guidelines" in parsed:
+                logger.info("Detected ultimate_structure format after preprocessing - returning object as-is")
+                return parsed  # НЕ ОБОРАЧИВАЕМ!
+            elif "data" in parsed:
+                return parsed["data"]
+            else:
+                return [parsed]  # Оборачиваем одиночные структуры
         else:
             return []
     except json.JSONDecodeError as e:
@@ -249,7 +277,14 @@ def _parse_json_from_response(response_content: str) -> Any:
         if isinstance(parsed, list):
             return parsed
         elif isinstance(parsed, dict):
-            return parsed.get("data", [parsed])
+            # APPLY SAME SMART LOGIC as in other attempts
+            if "article_structure" in parsed and "writing_guidelines" in parsed:
+                logger.info("Detected ultimate_structure format in error recovery - returning object as-is")
+                return parsed
+            elif "data" in parsed:
+                return parsed["data"]
+            else:
+                return [parsed]
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse extracted JSON string: {e}")
         logger.error(f"String: {response_content[:1000]}")
@@ -680,14 +715,20 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
     """
     logger.info(f"Starting SEQUENTIAL section-by-section article generation for topic: {topic}")
 
-    # Parse actual ultimate_structure format
+    # Parse actual ultimate_structure format with SMART DETECTION
     actual_sections = []
 
-    if isinstance(structure, list) and len(structure) > 0:
+    if isinstance(structure, dict) and "article_structure" in structure:
+        # НОВЫЙ ПРАВИЛЬНЫЙ ФОРМАТ - объект ultimate_structure
+        actual_sections = structure["article_structure"]
+        logger.info(f"✅ Found {len(actual_sections)} sections in ultimate_structure object")
+    elif isinstance(structure, list) and len(structure) > 0:
         if isinstance(structure[0], dict) and "article_structure" in structure[0]:
+            # СТАРЫЙ ФОРМАТ - массив с объектом
             actual_sections = structure[0]["article_structure"]
-            logger.info(f"Found {len(actual_sections)} sections in article_structure")
+            logger.info(f"Found {len(actual_sections)} sections in article_structure (legacy format)")
         else:
+            # ПРЯМОЙ МАССИВ СЕКЦИЙ
             actual_sections = structure
             logger.info(f"Using raw structure with {len(actual_sections)} sections")
     else:
@@ -856,14 +897,18 @@ def generate_article_by_sections_OLD_ASYNC(structure: List[Dict], topic: str, ba
     """
     logger.info(f"Starting PARALLEL section-by-section article generation for topic: {topic}")
 
-    # ИСПРАВЛЕНИЕ: парсим реальный формат ultimate_structure
+    # ИСПРАВЛЕНИЕ: парсим реальный формат ultimate_structure с SMART DETECTION
     actual_sections = []
 
-    if isinstance(structure, list) and len(structure) > 0:
+    if isinstance(structure, dict) and "article_structure" in structure:
+        # НОВЫЙ ПРАВИЛЬНЫЙ ФОРМАТ - объект ultimate_structure
+        actual_sections = structure["article_structure"]
+        logger.info(f"✅ Extracted {len(actual_sections)} sections from ultimate_structure object")
+    elif isinstance(structure, list) and len(structure) > 0:
         if isinstance(structure[0], dict) and "article_structure" in structure[0]:
             # Формат: [{"article_structure": [секции...]}]
             actual_sections = structure[0]["article_structure"]
-            logger.info(f"Extracted {len(actual_sections)} sections from article_structure")
+            logger.info(f"Extracted {len(actual_sections)} sections from article_structure (legacy format)")
         else:
             # Формат: [секции...]
             actual_sections = structure

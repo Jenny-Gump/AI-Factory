@@ -14,14 +14,20 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
     """
     logger.info(f"Starting SEQUENTIAL section-by-section article generation for topic: {topic}")
 
-    # Parse actual ultimate_structure format
+    # Parse actual ultimate_structure format with SMART DETECTION
     actual_sections = []
 
-    if isinstance(structure, list) and len(structure) > 0:
+    if isinstance(structure, dict) and "article_structure" in structure:
+        # НОВЫЙ ПРАВИЛЬНЫЙ ФОРМАТ - объект ultimate_structure
+        actual_sections = structure["article_structure"]
+        logger.info(f"✅ Found {len(actual_sections)} sections in ultimate_structure object")
+    elif isinstance(structure, list) and len(structure) > 0:
         if isinstance(structure[0], dict) and "article_structure" in structure[0]:
+            # СТАРЫЙ ФОРМАТ - массив с объектом
             actual_sections = structure[0]["article_structure"]
-            logger.info(f"Found {len(actual_sections)} sections in article_structure")
+            logger.info(f"Found {len(actual_sections)} sections in article_structure (legacy format)")
         else:
+            # ПРЯМОЙ МАССИВ СЕКЦИЙ
             actual_sections = structure
             logger.info(f"Using raw structure with {len(actual_sections)} sections")
     else:
