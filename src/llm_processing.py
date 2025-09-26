@@ -187,6 +187,11 @@ def _parse_json_from_response(response_content: str, stage_context: str = "unkno
         # Fix control characters that cause "Invalid control character" errors
         # Replace unescaped control characters within JSON string values
         fixed_content = re.sub(r'(:\s*")([^"]*?)(")', lambda m: m.group(1) + m.group(2).replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t') + m.group(3), fixed_content)
+
+        # Additional fix for code blocks with unescaped newlines (common in editorial review responses)
+        fixed_content = re.sub(r'(<(?:pre><)?code[^>]*>)(.*?)(</code>(?:</pre>)?)',
+                              lambda m: m.group(1) + m.group(2).replace('\n', '\\n') + m.group(3),
+                              fixed_content, flags=re.DOTALL)
         
         # Fix escaped underscores in JSON keys (aggressive approach)
         fixed_content = fixed_content.replace('prompt\\_text', 'prompt_text')
@@ -196,7 +201,10 @@ def _parse_json_from_response(response_content: str, stage_context: str = "unkno
         
         # Fix any remaining backslash-underscore patterns
         fixed_content = re.sub(r'\\\\_', '_', fixed_content)
-        
+
+        # Fix DeepSeek JSON array separator bug: }], { → }, {
+        fixed_content = re.sub(r'\}],\s*\{', '}, {', fixed_content)
+
         # Fix unescaped quotes within JSON string values (common in HTML content)
         # More aggressive approach for long strings with multiple quotes
         def fix_quotes_in_json_string(match):

@@ -87,9 +87,71 @@
 ```
 **Обработка**: Извлекать `link_plan` массив.
 
-## Логика в _parse_json_from_response
+## Полная архитектура парсинга в _parse_json_from_response
 
-### SMART DETECTION RULES
+### 5 ATTEMPTS SYSTEM
+
+Функция `_parse_json_from_response()` использует 5-этапную систему парсинга с fallback логикой:
+
+#### **Attempt 1: Standard JSON parsing**
+- Стандартный `json.loads(response_content)`
+- Быстрый и надежный для корректного JSON
+- При успехе применяется SMART DETECTION LOGIC
+
+#### **Attempt 1.5: Enhanced JSON preprocessing**
+- Продвинутая предобработка для исправления LLM багов
+- Множественные regex-фиксы перед парсингом
+- **СПИСОК ВСЕХ ФИКСОВ**:
+  ```python
+  # DeepSeek model specific fixes
+  fixed_content = re.sub(r'"context_after: "', r'"context_after": "', fixed_content)
+  fixed_content = re.sub(r'"context_before: "', r'"context_before": "', fixed_content)
+  fixed_content = re.sub(r'"anchor_text: "', r'"anchor_text": "', fixed_content)
+  fixed_content = re.sub(r'"query: "', r'"query": "', fixed_content)
+  fixed_content = re.sub(r'"hint: "', r'"hint": "', fixed_content)
+  fixed_content = re.sub(r'"section: "', r'"section": "', fixed_content)
+  fixed_content = re.sub(r'"ref_id: "', r'"ref_id": "', fixed_content)
+
+  # Generic missing colons fix
+  fixed_content = re.sub(r'"([^"]+): (["\[\{])', r'"\1": \2', fixed_content)
+
+  # Control characters fix
+  fixed_content = re.sub(r'(:\s*")([^"]*?)(")', lambda m: m.group(1) + m.group(2).replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t') + m.group(3), fixed_content)
+
+  # Escaped underscores fix
+  fixed_content = fixed_content.replace('prompt\\_text', 'prompt_text')
+  fixed_content = fixed_content.replace('expert\\_description', 'expert_description')
+  fixed_content = fixed_content.replace('why\\_good', 'why_good')
+  fixed_content = fixed_content.replace('how\\_to\\_improve', 'how_to_improve')
+  fixed_content = re.sub(r'\\\\_', '_', fixed_content)
+
+  # DeepSeek JSON array separator bug fix (НОВЫЙ)
+  fixed_content = re.sub(r'\}],\s*\{', '}, {', fixed_content)
+
+  # Unescaped quotes fix (сложная функция)
+  # ... advanced quote fixing logic
+  ```
+- При успехе применяется SMART DETECTION LOGIC
+
+#### **Attempt 2: Basic regex cleanup**
+- Удаление лишних символов перед/после JSON
+- `re.search(r'\[.*\]|\{.*\}', response_content, re.DOTALL)`
+
+#### **Attempt 3: Markdown cleanup**
+- Удаление markdown блоков ```json ... ```
+- Извлечение JSON из текста
+
+#### **Attempt 4: JSON extraction**
+- Поиск JSON паттернов в тексте
+- Попытка извлечь валидный JSON фрагмент
+
+#### **Attempt 5: Final fallback**
+- Возврат пустого массива `[]` при полном провале
+- Логирование критической ошибки
+
+### SMART DETECTION LOGIC
+
+Применяется при успешном парсинге (Attempt 1 и 1.5):
 
 1. **Если массив** → вернуть как есть
 2. **Если объект с ключами `article_structure` + `writing_guidelines`** → Ultimate Structure → вернуть как есть
@@ -97,7 +159,7 @@
 4. **Если объект с ключом `link_plan`** → извлечь содержимое link_plan
 5. **Иначе одиночный объект структуры** → обернуть в массив для обратной совместимости
 
-### Код в функции:
+### Код SMART DETECTION:
 ```python
 if isinstance(parsed, dict):
     # Ultimate structure detection
@@ -166,8 +228,28 @@ if not current_model.startswith("perplexity/"):
 4. **Обновить этот документ** с новым форматом
 5. **Протестировать** на реальных данных
 
+## Примеры LLM ошибок и их исправлений
+
+### DeepSeek Specific Bugs:
+1. **Missing colons**: `"key": "` → `"key": "`
+2. **Array separator bug**: `}], {` → `}, {` (ИСПРАВЛЕНО)
+3. **Escaped underscores**: `prompt\\_text` → `prompt_text`
+
+### General JSON Issues:
+1. **Control characters**: `\n`, `\r`, `\t` в строковых значениях
+2. **Unescaped quotes**: Кавычки внутри HTML контента
+3. **Malformed structure**: Отсутствующие запятые, скобки
+
+### Markdown Wrapping:
+- LLM оборачивают JSON в ```json ... ```
+- Требуется извлечение из markdown блоков
+
 ## История изменений
 
 - **2025-09-24**: Создан документ после исправления проблемы с двойным оборачиванием ultimate_structure
 - Исправлена логика в `_parse_json_from_response` для корректного определения форматов
-- **2025-09-25**: Добавлена документация по совместимости Perplexity моделей с response_format параметром
+- **2025-09-25**:
+  - Добавлена документация по совместимости Perplexity моделей с response_format параметром
+  - **КРИТИЧЕСКИЙ ФИКС**: Добавлен фикс DeepSeek JSON array separator bug `}], {` → `}, {`
+  - Добавлена полная документация 5-этапной системы парсинга
+  - Документированы все существующие фиксы в enhanced preprocessing
