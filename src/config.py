@@ -62,7 +62,8 @@ LLM_MODELS = {
     "extract_prompts": "deepseek/deepseek-chat-v3.1:free",              # FREE Model for prompt extraction from articles
     "create_structure": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for creating ultimate structure (basic_articles)
     "generate_article": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for WordPress article generation
-    "editorial_review": "perplexity/sonar-reasoning-pro:online",        # Perplexity for editorial review WITH fact-checking via web search
+    "fact_check": "perplexity/sonar-reasoning-pro:online",              # Perplexity for fact-checking sections via web search
+    "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for editorial formatting and structure
     "link_planning": "deepseek/deepseek-chat-v3.1:free",                # FREE Model for link planning
     "link_selection": "deepseek/deepseek-chat-v3.1:free",               # FREE Model for link selection from candidates
 }
@@ -72,6 +73,7 @@ FALLBACK_MODELS = {
     "extract_prompts": "google/gemini-2.5-flash-lite-preview-06-17",    # Fallback to Gemini 2.5
     "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
+    "fact_check": "google/gemini-2.5-flash-lite-preview-06-17",         # Fallback to Gemini 2.5
     "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "link_planning": "google/gemini-2.5-flash-lite-preview-06-17",      # Fallback to Gemini 2.5
     "link_selection": "google/gemini-2.5-flash-lite-preview-06-17",     # Fallback to Gemini 2.5

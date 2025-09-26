@@ -16,6 +16,7 @@ from src.processing import (
 from src.llm_processing import (
     extract_prompts_from_article,
     generate_article_by_sections,  # NEW: for section-by-section generation
+    fact_check_sections,  # NEW: for fact-checking individual sections
     editorial_review,
     _load_and_prepare_messages,
     _make_llm_request_with_retry,
@@ -47,7 +48,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     """
     Simplified pipeline for generating basic articles with FAQ and sources.
     Improved pipeline with configurable content type for different prompt sets.
-    Этапы: 1-6 поиск/очистка → 7 структуры → 8 ультимативная → 9 генерация → 10 редактура → 10.5 ссылки → 11 публикация
+    Этапы: 1-6 поиск/очистка → 7 структуры → 8 ультимативная → 9 генерация → 9.5 факт-чек → 10 редактура → 11 ссылки → 12 публикация
     """
     logger.info(f"--- Starting Basic Articles Pipeline for topic: '{topic}' ---")
 
@@ -69,8 +70,9 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         "structure_extraction": os.path.join(base_output_path, "06_structure_extraction"),
         "ultimate_structure": os.path.join(base_output_path, "07_ultimate_structure"),
         "final_article": os.path.join(base_output_path, "08_article_generation"),
-        "editorial_review": os.path.join(base_output_path, "09_editorial_review"),
-        "links": os.path.join(base_output_path, "10_link_processing"),
+        "fact_check": os.path.join(base_output_path, "09_fact_check"),
+        "editorial_review": os.path.join(base_output_path, "10_editorial_review"),
+        "links": os.path.join(base_output_path, "11_link_processing"),
     }
     for path in paths.values():
         os.makedirs(path, exist_ok=True)
@@ -242,10 +244,39 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     save_artifact(wordpress_data, paths["final_article"], "wordpress_data.json")
 
     if isinstance(wordpress_data, dict) and "raw_response" in wordpress_data:
-        logger.info(f"Generated article data ready for editorial review")
+        logger.info(f"Generated article data ready for fact-checking")
     else:
         logger.error("Invalid WordPress data structure returned")
+        return
 
+    # --- Этап 9.5: Fact-checking секций ---
+    logger.info("Starting fact-checking of generated sections...")
+
+    generated_sections = wordpress_data.get("generated_sections", [])
+    if not generated_sections:
+        logger.error("No generated sections found for fact-checking. Exiting.")
+        return
+
+    fact_checked_sections = fact_check_sections(
+        sections=generated_sections,
+        topic=topic,
+        base_path=paths["fact_check"],
+        token_tracker=token_tracker,
+        model_name=active_models.get("fact_check"),
+        content_type=content_type
+    )
+
+    save_artifact(fact_checked_sections, paths["fact_check"], "fact_checked_sections.json")
+
+    # Merge fact-checked sections
+    from src.llm_processing import merge_sections
+    merged_content = merge_sections(fact_checked_sections, topic, ultimate_structure)
+    save_artifact(merged_content, paths["fact_check"], "merged_fact_checked_content.json")
+
+    # Update wordpress_data with fact-checked content
+    wordpress_data["raw_response"] = json.dumps(merged_content, ensure_ascii=False)
+
+    logger.info(f"Fact-checking completed: {len([s for s in fact_checked_sections if s.get('status') == 'fact_checked'])} sections fact-checked")
 
     # --- Этап 10: Editorial Review ---
     logger.info("Starting editorial review and cleanup...")
@@ -268,7 +299,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.warning("Editorial review returned invalid structure, using original data")
         wordpress_data_final = wordpress_data
 
-    # --- Этап 10.5: Link Processing ---
+    # --- Этап 11: Link Processing ---
     from src.config import LINK_PROCESSING_ENABLED
     if LINK_PROCESSING_ENABLED and isinstance(wordpress_data_final, dict) and "content" in wordpress_data_final:
         logger.info("=== Starting Link Processing Stage ===")
@@ -314,7 +345,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         else:
             logger.warning("Link processing skipped - no valid content in wordpress_data_final")
 
-    # --- Этап 11 (опциональный): WordPress Publication ---
+    # --- Этап 12 (опциональный): WordPress Publication ---
     if publish_to_wordpress:
         logger.info("Starting WordPress publication...")
         try:

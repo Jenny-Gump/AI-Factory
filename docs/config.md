@@ -30,12 +30,13 @@ WORDPRESS_APP_PASSWORD=xxxx xxxx xxxx xxxx
 
 ##  Модели LLM
 
-### Основные модели (DeepSeek FREE):
+### Основные модели (DeepSeek FREE + Perplexity):
 ```python
 LLM_MODELS = {
     "extract_prompts": "deepseek/deepseek-chat-v3.1:free",
     "create_structure": "deepseek/deepseek-chat-v3.1:free",
     "generate_article": "deepseek/deepseek-chat-v3.1:free",
+    "fact_check": "perplexity/sonar-reasoning-pro:online",      # Обязательно :online для веб-поиска
     "editorial_review": "deepseek/deepseek-chat-v3.1:free",
     "link_planning": "deepseek/deepseek-chat-v3.1:free",
     "link_selection": "deepseek/deepseek-chat-v3.1:free",
@@ -48,6 +49,7 @@ FALLBACK_MODELS = {
     "extract_prompts": "google/gemini-2.5-flash-lite-preview-06-17",
     "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",
+    "fact_check": "google/gemini-2.5-flash-lite-preview-06-17",         # Fallback для fact-check
     "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",
     "link_planning": "google/gemini-2.5-flash-lite-preview-06-17",
     "link_selection": "google/gemini-2.5-flash-lite-preview-06-17",
@@ -159,47 +161,137 @@ LLM_PROVIDERS = {
 }
 ```
 
-## Batch Processing настройки
+## Batch Processing настройки (batch_config.py)
 
+### Основные параметры BATCH_CONFIG:
 ```python
-# batch_config.py
 BATCH_CONFIG = {
-    "max_memory_mb": 2048,               # Максимальное использование памяти
-    "max_concurrent_requests": 5,        # Параллельные HTTP запросы
-    "retry_failed_topics": 2,            # Повторы для неудачных тем
-    "retry_delay_seconds": 60,           # Задержка между повторами
-    "autosave_interval": 300,            # Автосохранение каждые 5 минут
-    "verify_publication_before_next": True  # Проверка публикации
-}
+    # Лимиты ресурсов
+    "max_memory_mb": 2048,                    # Лимит памяти в MB
+    "max_concurrent_requests": 5,             # Параллельные HTTP запросы
 
-# Типы контента
+    # Retry политика
+    "retry_failed_topics": 2,                 # Количество повторов для неудачных тем
+    "retry_delay_seconds": 60,                # Задержка между повторами (сек)
+
+    # Безопасность и надежность
+    "autosave_interval": 300,                 # Автосохранение каждые 5 минут
+    "enable_memory_monitoring": True,         # Мониторинг памяти
+    "verify_publication_before_next": True,   # Проверка публикации перед следующей темой
+
+    # Логирование
+    "detailed_progress_logging": True,        # Детальное логирование прогресса
+    "save_failed_topics_log": True           # Сохранять лог неудачных тем
+}
+```
+
+### Типы контента CONTENT_TYPES:
+```python
 CONTENT_TYPES = {
     "basic_articles": {
         "prompts_folder": "prompts/basic_articles",
+        "description": "Basic informational articles with FAQ and sources",
+        "default_topics_file": "topics_basic_articles.txt",
+        "output_prefix": "article_",
         "wordpress_category": "articles"
     },
     "guides": {
         "prompts_folder": "prompts/guides",
+        "description": "Comprehensive step-by-step guides and tutorials",
+        "default_topics_file": "topics_guides.txt",
+        "output_prefix": "guide_",
         "wordpress_category": "guides"
     }
 }
 ```
 
-##  Запуск с кастомными настройками
+### Очистка памяти MEMORY_CLEANUP:
+```python
+MEMORY_CLEANUP = {
+    "force_gc_between_topics": True,      # Принудительный garbage collection
+    "clear_llm_caches": True,             # Очистка кэшей LLM клиентов
+    "reset_token_tracker": True,          # Сброс token tracker между темами
+    "close_http_connections": True,       # Закрытие HTTP соединений
+    "clear_firecrawl_cache": True,        # Очистка кэша Firecrawl
+}
+```
 
-### Batch processing с флагами:
+### Пути файлов BATCH_PATHS:
+```python
+BATCH_PATHS = {
+    "progress_file_template": ".batch_progress_{content_type}.json",
+    "failed_topics_log": "batch_failed_topics.log",
+    "batch_statistics": "batch_stats.json",
+    "lock_file_template": ".batch_lock_{content_type}.pid"
+}
+```
+
+##  Batch Processor (batch_processor.py)
+
+### Основные возможности:
+- **Последовательная обработка** тем из файла (одна за другой)
+- **Автоматическое возобновление** прерванных сессий с флагом `--resume`
+- **Мониторинг памяти** с автоматической очисткой между темами
+- **Retry логика** для неудачных тем (до 3 попыток)
+- **Блокировка процессов** - предотвращает запуск нескольких instance одновременно
+- **Поддержка разных типов контента** через флаг `--content-type`
+
+### Базовое использование:
 ```bash
-# С кастомной моделью для генерации
-python3 batch_processor.py topics.txt --generate-model "deepseek-reasoner"
+# Обработка базовых статей (по умолчанию)
+python3 batch_processor.py topics_basic_articles.txt
+
+# Обработка с указанием типа контента
+python3 batch_processor.py topics_guides.txt --content-type guides
 
 # Без публикации в WordPress
 python3 batch_processor.py topics.txt --skip-publication
+
+# Возобновление прерванной сессии
+python3 batch_processor.py topics.txt --resume
+```
+
+### Кастомные модели:
+```bash
+# С кастомной моделью для генерации
+python3 batch_processor.py topics.txt --generate-model "deepseek-reasoner"
 
 # С кастомными моделями для разных этапов
 python3 batch_processor.py topics.txt \
     --extract-model "openai/gpt-4o" \
     --generate-model "deepseek-reasoner" \
     --editorial-model "google/gemini-2.5-flash-lite-preview-06-17"
+
+# Комбинирование всех опций
+python3 batch_processor.py topics_guides.txt \
+    --content-type guides \
+    --generate-model "deepseek-reasoner" \
+    --skip-publication \
+    --resume
+```
+
+### Формат файла тем:
+```text
+# topics_basic_articles.txt
+API автоматизация в 2024 году
+Машинное обучение для начинающих
+Кибербезопасность в облачных технологиях
+# Комментарии начинающиеся с # игнорируются
+Разработка мобильных приложений 2025 тренды
+```
+
+### Функции безопасности:
+- **Lock файлы**: `.batch_lock_{content_type}.pid` предотвращают двойной запуск
+- **Progress файлы**: `.batch_progress_{content_type}.json` для возобновления
+- **Memory monitoring**: Автоматические предупреждения при превышении лимитов
+- **Graceful shutdown**: Корректная обработка Ctrl+C с сохранением прогресса
+
+##  Запуск с кастомными настройками
+
+### Традиционные флаги main.py:
+```bash
+# main.py НЕ поддерживает флаги моделей - используйте batch_processor.py
+python3 main.py "API автоматизация в 2024"  # Всегда basic_articles по умолчанию
 ```
 
 ##  Проверка конфигурации

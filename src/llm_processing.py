@@ -886,7 +886,11 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
 
     logger.info(f"🎉 Article generation COMPLETE: {len(successful_sections)}/{total_sections} sections generated successfully")
 
-    return {"raw_response": json.dumps(merged_content, ensure_ascii=False), "topic": topic}
+    return {
+        "raw_response": json.dumps(merged_content, ensure_ascii=False),
+        "topic": topic,
+        "generated_sections": generated_sections  # Add sections for fact-checking
+    }
 
 
 def generate_article_by_sections_OLD_ASYNC(structure: List[Dict], topic: str, base_path: str = None,
@@ -1120,7 +1124,11 @@ def generate_article_by_sections_OLD_ASYNC(structure: List[Dict], topic: str, ba
     logger.info(f"🎉 Article generation FULLY COMPLETE: {len(successful_sections)}/{total_sections} sections generated successfully")
     logger.info(f"📋 All async tasks have finished, proceeding to merge sections...")
 
-    return {"raw_response": json.dumps(merged_content, ensure_ascii=False), "topic": topic}
+    return {
+        "raw_response": json.dumps(merged_content, ensure_ascii=False),
+        "topic": topic,
+        "generated_sections": generated_sections  # Add sections for fact-checking
+    }
 
 
 def _convert_markdown_to_html(markdown_content: str) -> str:
@@ -1200,6 +1208,126 @@ def _convert_markdown_to_html(markdown_content: str) -> str:
     return result
 
 
+def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
+                       token_tracker: TokenTracker = None, model_name: str = None, content_type: str = "basic_articles") -> List[Dict]:
+    """
+    Performs fact-checking on individual sections before merging.
+
+    Args:
+        sections: List of generated sections with content
+        topic: Article topic
+        base_path: Path to save fact-check interactions
+        token_tracker: Token usage tracker
+        model_name: Override model name (uses config default if None)
+        content_type: Content type for prompt selection
+
+    Returns:
+        List of fact-checked sections with same structure
+    """
+    logger.info(f"Starting fact-checking for {len(sections)} sections...")
+
+    # Filter successful sections
+    successful_sections = [s for s in sections if s.get("status") == "success" and s.get("content")]
+
+    if not successful_sections:
+        logger.warning("No successful sections to fact-check")
+        return sections
+
+    total_sections = len(successful_sections)
+    logger.info(f"Total sections: {total_sections}")
+
+    # Process all successful sections
+    sections_to_check = successful_sections
+    logger.info(f"Fact-checking all {len(sections_to_check)} sections")
+
+    fact_checked_sections = []
+
+    # Process all sections individually
+    for idx, section in enumerate(sections_to_check):
+        section_num = section.get("section_num", idx)
+        section_title = section.get("section_title", f"Section {idx + 1}")
+        section_content = section.get("content", "")
+
+        logger.info(f"🔍 Fact-checking section {section_num + 1}: {section_title}")
+
+        try:
+            # Prepare messages for fact-checking
+            messages = _load_and_prepare_messages(
+                content_type,
+                "09_fact_check",
+                {
+                    "topic": topic,
+                    "section_title": section_title,
+                    "section_content": section_content
+                }
+            )
+
+            # Create section-specific path
+            section_path = os.path.join(base_path, f"section_{section_num + 1}") if base_path else None
+
+            # Make fact-check request
+            response_obj, actual_model = _make_llm_request_with_retry(
+                stage_name="fact_check",
+                model_name=model_name or LLM_MODELS.get("fact_check"),
+                messages=messages,
+                token_tracker=token_tracker,
+                base_path=section_path,
+                temperature=0.2  # Low temperature for factual accuracy
+            )
+
+            fact_checked_content = response_obj.choices[0].message.content
+
+            # Save interaction
+            if section_path:
+                save_llm_interaction(
+                    base_path=section_path,
+                    stage_name="fact_check",
+                    messages=messages,
+                    response=fact_checked_content,
+                    request_id=f"section_{section_num + 1}_fact_check"
+                )
+
+            # Create fact-checked section
+            fact_checked_section = {
+                "section_num": section_num,
+                "section_title": section_title,
+                "content": fact_checked_content,
+                "status": "fact_checked",
+                "attempts": section.get("attempts", 1),
+                "original_content": section_content,  # Keep original for comparison
+                "fact_check_model": actual_model
+            }
+
+            fact_checked_sections.append(fact_checked_section)
+            logger.info(f"✅ Section {section_num + 1} fact-checked successfully")
+
+            # Add delay between fact-check requests to avoid rate limits
+            if idx < len(sections_to_check) - 1:
+                delay = 3  # 3 seconds between fact-check requests
+                logger.info(f"⏳ Waiting {delay}s before next fact-check...")
+                time.sleep(delay)
+
+        except Exception as e:
+            logger.error(f"❌ Fact-check failed for section {section_num + 1}: {e}")
+            # Keep original section if fact-check fails
+            fact_checked_section = section.copy()
+            fact_checked_section["status"] = "fact_check_failed"
+            fact_checked_section["fact_check_error"] = str(e)
+            fact_checked_sections.append(fact_checked_section)
+
+    # Include failed sections from original list
+    for section in sections:
+        if section.get("status") != "success":
+            fact_checked_sections.append(section)
+
+    logger.info(f"Fact-checking completed: {len([s for s in fact_checked_sections if s.get('status') == 'fact_checked'])} sections fact-checked")
+
+    # Sort sections by section_num to maintain correct order
+    fact_checked_sections.sort(key=lambda x: x.get("section_num", 0))
+
+    return fact_checked_sections
+
+
 def merge_sections(sections: List[Dict], topic: str, structure: List[Dict]) -> Dict[str, Any]:
     """Merges individual sections into a complete WordPress article.
 
@@ -1213,8 +1341,8 @@ def merge_sections(sections: List[Dict], topic: str, structure: List[Dict]) -> D
     """
     logger.info("Merging sections into complete article...")
 
-    # Filter successful sections
-    successful_sections = [s for s in sections if s.get("status") == "success" and s.get("content")]
+    # Filter successful sections (including fact-checked and skipped)
+    successful_sections = [s for s in sections if s.get("status") in ["success", "fact_checked", "fact_check_skipped"] and s.get("content")]
 
     if not successful_sections:
         logger.error("No successful sections to merge")

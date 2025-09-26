@@ -3,30 +3,29 @@
   "topics_file": "topics_guides.txt",
   "total_topics": 2,
   "completed_topics": [
-    "claude code cli step by step guide for beginners",
     "Deepseek local model installation guide step by step for beginners"
   ],
   "failed_topics": [],
   "current_topic": null,
-  "start_time": "2025-09-23T16:35:48.191792",
-  "last_update_time": "2025-09-23T17:06:24.682369",
+  "start_time": "2025-09-26T23:35:23.252151",
+  "last_update_time": "2025-09-27T00:02:18.697514",
   "topic_statuses": {
-    "claude code cli step by step guide for beginners": {
-      "topic": "claude code cli step by step guide for beginners",
+    "Deepseek local model installation guide step by step for beginners": {
+      "topic": "Deepseek local model installation guide step by step for beginners",
       "status": "completed",
-      "start_time": "2025-09-23T16:35:48.192086",
-      "end_time": "2025-09-23T16:55:10.888414",
+      "start_time": "2025-09-26T23:35:23.252517",
+      "end_time": "2025-09-27T00:02:18.652345",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
       "wordpress_url": null
     },
-    "Deepseek local model installation guide step by step for beginners": {
-      "topic": "Deepseek local model installation guide step by step for beginners",
-      "status": "completed",
-      "start_time": "2025-09-23T16:55:15.946586",
-      "end_time": "2025-09-23T17:06:19.568871",
-      "attempts": 1,
+    "Mistral local model installation guide step by step for beginners": {
+      "topic": "Mistral local model installation guide step by step for beginners",
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "attempts": 0,
       "error_message": null,
       "wordpress_id": null,
       "wordpress_url": null
