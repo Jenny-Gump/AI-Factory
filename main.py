@@ -44,6 +44,44 @@ def save_artifact(data, path, filename):
             json.dump(data, f, indent=4, ensure_ascii=False)
     logger.info(f"Saved artifact to {filepath}")
 
+def save_html_with_proper_newlines(content: str, path: str, filename: str):
+    """
+    Сохраняет HTML контент с правильными переносами строк в code блоках.
+    Преобразует литеральные \n в настоящие переносы ТОЛЬКО внутри <pre><code> тегов.
+    """
+    os.makedirs(path, exist_ok=True)
+    filepath = os.path.join(path, filename)
+
+    # Функция для исправления блоков кода
+    def fix_code_block(match):
+        pre_tag = match.group(1)  # <pre> с возможными атрибутами
+        code_opening = match.group(2)  # <code> с возможными атрибутами
+        code_content = match.group(3)  # Содержимое блока кода
+        code_closing = match.group(4)  # </code>
+        pre_closing = match.group(5)  # </pre>
+
+        # Заменяем литеральные \n на настоящие переносы строк
+        fixed_content = code_content.replace('\\n', '\n')
+
+        # Логирование для отладки
+        if '\\n' in code_content:
+            logger.debug(f"Fixed code block: replaced {code_content.count('\\n')} \\n occurrences")
+
+        return f"{pre_tag}{code_opening}{fixed_content}{code_closing}{pre_closing}"
+
+    # Регулярное выражение для поиска блоков <pre><code>...</code></pre>
+    import re
+    pattern = r'(<pre[^>]*>)(<code[^>]*>)(.*?)(</code>)(</pre>)'
+
+    # Заменяем все блоки кода
+    fixed_content = re.sub(pattern, fix_code_block, content, flags=re.DOTALL)
+
+    # Сохраняем результат
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(fixed_content)
+
+    logger.info(f"Saved HTML with proper newlines to {filepath}")
+
 async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True, content_type: str = "basic_articles"):
     """
     Simplified pipeline for generating basic articles with FAQ and sources.
@@ -293,7 +331,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     save_artifact(wordpress_data_final, paths["editorial_review"], "wordpress_data_final.json")
 
     if isinstance(wordpress_data_final, dict) and "content" in wordpress_data_final:
-        save_artifact(wordpress_data_final["content"], paths["editorial_review"], "article_content_final.html")
+        save_html_with_proper_newlines(wordpress_data_final["content"], paths["editorial_review"], "article_content_final.html")
         logger.info(f"Editorial review completed: {wordpress_data_final.get('title', 'No title')}")
     else:
         logger.warning("Editorial review returned invalid structure, using original data")
@@ -379,6 +417,87 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     token_tracker.save_token_report(base_output_path)
     logger.info(f"Token usage report: {token_report_path}")
 
+async def run_single_stage(topic: str, stage: str, content_type: str = "basic_articles", publish_to_wordpress: bool = True):
+    """
+    Запускает pipeline с конкретного этапа, используя существующие данные.
+
+    Args:
+        topic: Тема статьи (используется для поиска существующей папки output)
+        stage: Этап для запуска ('editorial_review', 'link_processing', 'publication')
+        content_type: Тип контента
+        publish_to_wordpress: Публиковать ли в WordPress
+    """
+    from src.llm_processing import editorial_review
+    from src.config import LLM_MODELS
+    from src.token_tracker import TokenTracker
+
+    # Найти существующую папку output
+    sanitized_topic = sanitize_filename(topic)
+    base_output_path = f"output/_{sanitized_topic}_"
+
+    if not os.path.exists(base_output_path):
+        logger.error(f"Output folder not found: {base_output_path}")
+        logger.error("Run full pipeline first to create the necessary data files")
+        return
+
+    logger.info(f"Using existing output folder: {base_output_path}")
+
+    # Инициализация
+    token_tracker = TokenTracker()
+    active_models = LLM_MODELS
+
+    # Создание путей к этапам
+    paths = {
+        "fact_check": os.path.join(base_output_path, "09_fact_check"),
+        "editorial_review": os.path.join(base_output_path, "10_editorial_review"),
+        "link_processing": os.path.join(base_output_path, "11_link_processing"),
+        "publication": os.path.join(base_output_path, "12_publication")
+    }
+
+    if stage == "editorial_review":
+        logger.info("=== Starting Editorial Review Stage ===")
+
+        # Загрузить данные после fact-check
+        merged_content_path = os.path.join(paths["fact_check"], "merged_fact_checked_content.json")
+        if not os.path.exists(merged_content_path):
+            logger.error(f"Required file not found: {merged_content_path}")
+            return
+
+        with open(merged_content_path, 'r', encoding='utf-8') as f:
+            merged_content = json.load(f)
+
+        # Подготовить данные в формате, ожидаемом editorial_review
+        raw_response = json.dumps(merged_content, ensure_ascii=False)
+
+        # Запустить Editorial Review
+        wordpress_data_final = editorial_review(
+            raw_response=raw_response,
+            topic=topic,
+            base_path=paths["editorial_review"],
+            token_tracker=token_tracker,
+            model_name=active_models.get("editorial_review"),
+            content_type=content_type
+        )
+
+        save_artifact(wordpress_data_final, paths["editorial_review"], "wordpress_data_final.json")
+
+        if isinstance(wordpress_data_final, dict) and "content" in wordpress_data_final:
+            save_html_with_proper_newlines(wordpress_data_final["content"], paths["editorial_review"], "article_content_final.html")
+            logger.info(f"✅ Editorial review completed: {wordpress_data_final.get('title', 'No title')}")
+        else:
+            logger.warning("Editorial review returned invalid structure")
+            return
+
+        logger.info(f"Editorial Review stage completed successfully")
+
+        # Показать статистику токенов
+        token_summary = token_tracker.get_session_summary()
+        logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
+
+    else:
+        logger.error(f"Stage '{stage}' not implemented yet")
+        logger.info("Available stages: editorial_review")
+
 async def main_flow(topic: str, model_overrides: Dict = None, publish_to_wordpress: bool = True, content_type: str = "basic_articles"):
     """Async wrapper function for batch processor compatibility"""
     return await basic_articles_pipeline(topic, publish_to_wordpress, content_type)
@@ -390,6 +509,8 @@ if __name__ == "__main__":
                        default='basic_articles', help='Type of content to generate')
     parser.add_argument('--skip-publication', action='store_true',
                        help='Skip WordPress publication')
+    parser.add_argument('--start-from-stage', choices=['editorial_review', 'link_processing', 'publication'],
+                       help='Start pipeline from specific stage (requires existing output folder)')
 
     args = parser.parse_args()
 
@@ -403,18 +524,34 @@ if __name__ == "__main__":
 
     publish_to_wordpress = not args.skip_publication
 
-    logger.info(f"Starting pipeline for topic: {args.topic}")
-    logger.info(f"Content type: {args.content_type}")
-    logger.info(f"WordPress publication: {'enabled' if publish_to_wordpress else 'disabled'}")
-
     import asyncio
 
-    try:
-        asyncio.run(basic_articles_pipeline(args.topic, publish_to_wordpress, args.content_type))
-        logger.info("✅ Pipeline completed successfully")
-    except KeyboardInterrupt:
-        logger.info("\\n🛑 Pipeline interrupted by user")
-        sys.exit(130)
-    except Exception as e:
-        logger.error(f"💥 Pipeline failed: {e}")
-        sys.exit(1)
+    # Проверить флаг --start-from-stage
+    if args.start_from_stage:
+        logger.info(f"Starting from stage: {args.start_from_stage}")
+        logger.info(f"Topic: {args.topic}")
+        logger.info(f"Content type: {args.content_type}")
+
+        try:
+            asyncio.run(run_single_stage(args.topic, args.start_from_stage, args.content_type, publish_to_wordpress))
+            logger.info(f"✅ Stage '{args.start_from_stage}' completed successfully")
+        except KeyboardInterrupt:
+            logger.info("\\n🛑 Stage interrupted by user")
+            sys.exit(130)
+        except Exception as e:
+            logger.error(f"💥 Stage '{args.start_from_stage}' failed: {e}")
+            sys.exit(1)
+    else:
+        logger.info(f"Starting full pipeline for topic: {args.topic}")
+        logger.info(f"Content type: {args.content_type}")
+        logger.info(f"WordPress publication: {'enabled' if publish_to_wordpress else 'disabled'}")
+
+        try:
+            asyncio.run(basic_articles_pipeline(args.topic, publish_to_wordpress, args.content_type))
+            logger.info("✅ Pipeline completed successfully")
+        except KeyboardInterrupt:
+            logger.info("\\n🛑 Pipeline interrupted by user")
+            sys.exit(130)
+        except Exception as e:
+            logger.error(f"💥 Pipeline failed: {e}")
+            sys.exit(1)
