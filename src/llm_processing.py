@@ -1225,10 +1225,35 @@ def _convert_markdown_to_html(markdown_content: str) -> str:
     return result
 
 
-def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
-                       token_tracker: TokenTracker = None, model_name: str = None, content_type: str = "basic_articles") -> List[Dict]:
+def group_sections_for_fact_check(sections: List[Dict], group_size: int = 3) -> List[List[Dict]]:
     """
-    Performs fact-checking on individual sections before merging.
+    Группирует секции для батчевой обработки факт-чека.
+
+    Args:
+        sections: Список секций для группировки
+        group_size: Размер группы (по умолчанию 3)
+
+    Returns:
+        Список групп секций
+
+    Example:
+        8 секций → [[1,2,3], [4,5,6], [7,8]]
+        5 секций → [[1,2,3], [4,5]]
+        2 секции → [[1,2]]
+    """
+    groups = []
+    for i in range(0, len(sections), group_size):
+        group = sections[i:i + group_size]
+        groups.append(group)
+
+    logger.info(f"Grouped {len(sections)} sections into {len(groups)} groups of max {group_size} sections each")
+    return groups
+
+
+def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
+                       token_tracker: TokenTracker = None, model_name: str = None, content_type: str = "basic_articles") -> str:
+    """
+    Performs fact-checking on groups of sections and returns combined content.
 
     Args:
         sections: List of generated sections with content
@@ -1239,48 +1264,56 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
         content_type: Content type for prompt selection
 
     Returns:
-        List of fact-checked sections with same structure
+        Combined fact-checked content as HTML string
     """
-    logger.info(f"Starting fact-checking for {len(sections)} sections...")
+    logger.info(f"Starting grouped fact-checking for {len(sections)} sections...")
 
     # Filter successful sections
     successful_sections = [s for s in sections if s.get("status") == "success" and s.get("content")]
 
     if not successful_sections:
         logger.warning("No successful sections to fact-check")
-        return sections
+        # Return combined content of original sections
+        return "\n\n".join([s.get("content", "") for s in sections if s.get("content")])
 
     total_sections = len(successful_sections)
-    logger.info(f"Total sections: {total_sections}")
+    logger.info(f"Total successful sections: {total_sections}")
 
-    # Process all successful sections
-    sections_to_check = successful_sections
-    logger.info(f"Fact-checking all {len(sections_to_check)} sections")
+    # Group sections by 3
+    section_groups = group_sections_for_fact_check(successful_sections, group_size=3)
+    logger.info(f"Created {len(section_groups)} groups for fact-checking")
 
-    fact_checked_sections = []
+    fact_checked_content_parts = []
 
-    # Process all sections individually
-    for idx, section in enumerate(sections_to_check):
-        section_num = section.get("section_num", idx)
-        section_title = section.get("section_title", f"Section {idx + 1}")
-        section_content = section.get("content", "")
-
-        logger.info(f"🔍 Fact-checking section {section_num + 1}: {section_title}")
+    # Process each group
+    for group_idx, group in enumerate(section_groups):
+        group_num = group_idx + 1
+        logger.info(f"🔍 Fact-checking group {group_num}/{len(section_groups)} with {len(group)} sections")
 
         try:
-            # Prepare messages for fact-checking
+            # Combine content from all sections in the group
+            combined_content = ""
+            section_titles = []
+
+            for section in group:
+                section_title = section.get("section_title", "Untitled Section")
+                section_content = section.get("content", "")
+                section_titles.append(section_title)
+                combined_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+
+            # Prepare messages for fact-checking the group
             messages = _load_and_prepare_messages(
                 content_type,
                 "09_fact_check",
                 {
                     "topic": topic,
-                    "section_title": section_title,
-                    "section_content": section_content
+                    "section_title": f"Группа {group_num} ({', '.join(section_titles)})",
+                    "section_content": combined_content.strip()
                 }
             )
 
-            # Create section-specific path
-            section_path = os.path.join(base_path, f"section_{section_num + 1}") if base_path else None
+            # Create group-specific path
+            group_path = os.path.join(base_path, f"group_{group_num}") if base_path else None
 
             # Make fact-check request
             response_obj, actual_model = _make_llm_request_with_retry(
@@ -1288,61 +1321,47 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                 model_name=model_name or LLM_MODELS.get("fact_check"),
                 messages=messages,
                 token_tracker=token_tracker,
-                base_path=section_path,
+                base_path=group_path,
                 temperature=0.2  # Low temperature for factual accuracy
             )
 
             fact_checked_content = response_obj.choices[0].message.content
 
             # Save interaction
-            if section_path:
+            if group_path:
                 save_llm_interaction(
-                    base_path=section_path,
+                    base_path=group_path,
                     stage_name="fact_check",
                     messages=messages,
                     response=fact_checked_content,
-                    request_id=f"section_{section_num + 1}_fact_check"
+                    request_id=f"group_{group_num}_fact_check"
                 )
 
-            # Create fact-checked section
-            fact_checked_section = {
-                "section_num": section_num,
-                "section_title": section_title,
-                "content": fact_checked_content,
-                "status": "fact_checked",
-                "attempts": section.get("attempts", 1),
-                "original_content": section_content,  # Keep original for comparison
-                "fact_check_model": actual_model
-            }
+            fact_checked_content_parts.append(fact_checked_content)
+            logger.info(f"✅ Group {group_num} fact-checked successfully")
 
-            fact_checked_sections.append(fact_checked_section)
-            logger.info(f"✅ Section {section_num + 1} fact-checked successfully")
-
-            # Add delay between fact-check requests to avoid rate limits
-            if idx < len(sections_to_check) - 1:
-                delay = 3  # 3 seconds between fact-check requests
-                logger.info(f"⏳ Waiting {delay}s before next fact-check...")
+            # Add delay between group fact-check requests to avoid rate limits
+            if group_idx < len(section_groups) - 1:
+                delay = 3  # 3 seconds between group requests
+                logger.info(f"⏳ Waiting {delay}s before next group fact-check...")
                 time.sleep(delay)
 
         except Exception as e:
-            logger.error(f"❌ Fact-check failed for section {section_num + 1}: {e}")
-            # Keep original section if fact-check fails
-            fact_checked_section = section.copy()
-            fact_checked_section["status"] = "fact_check_failed"
-            fact_checked_section["fact_check_error"] = str(e)
-            fact_checked_sections.append(fact_checked_section)
+            logger.error(f"❌ Fact-check failed for group {group_num}: {e}")
+            # Keep original content for this group if fact-check fails
+            group_original_content = ""
+            for section in group:
+                section_title = section.get("section_title", "Untitled Section")
+                section_content = section.get("content", "")
+                group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+            fact_checked_content_parts.append(group_original_content.strip())
 
-    # Include failed sections from original list
-    for section in sections:
-        if section.get("status") != "success":
-            fact_checked_sections.append(section)
+    # Combine all fact-checked content parts
+    combined_fact_checked_content = "\n\n".join(fact_checked_content_parts)
 
-    logger.info(f"Fact-checking completed: {len([s for s in fact_checked_sections if s.get('status') == 'fact_checked'])} sections fact-checked")
+    logger.info(f"Fact-checking completed: {len(section_groups)} groups processed, combined content length: {len(combined_fact_checked_content)} chars")
 
-    # Sort sections by section_num to maintain correct order
-    fact_checked_sections.sort(key=lambda x: x.get("section_num", 0))
-
-    return fact_checked_sections
+    return combined_fact_checked_content
 
 
 def merge_sections(sections: List[Dict], topic: str, structure: List[Dict]) -> Dict[str, Any]:

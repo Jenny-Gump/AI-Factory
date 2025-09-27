@@ -301,14 +301,15 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         return
 
     # --- Этап 9.5: Fact-checking секций ---
-    logger.info("Starting fact-checking of generated sections...")
+    logger.info("Starting grouped fact-checking of generated sections...")
 
     generated_sections = wordpress_data.get("generated_sections", [])
     if not generated_sections:
         logger.error("No generated sections found for fact-checking. Exiting.")
         return
 
-    fact_checked_sections = fact_check_sections(
+    # Get combined fact-checked content directly
+    fact_checked_content = fact_check_sections(
         sections=generated_sections,
         topic=topic,
         base_path=paths["fact_check"],
@@ -317,17 +318,22 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         content_type=content_type
     )
 
-    save_artifact(fact_checked_sections, paths["fact_check"], "fact_checked_sections.json")
+    # Save the combined fact-checked content
+    save_artifact({"content": fact_checked_content}, paths["fact_check"], "fact_checked_content.json")
 
-    # Merge fact-checked sections
-    from src.llm_processing import merge_sections
-    merged_content = merge_sections(fact_checked_sections, topic, ultimate_structure)
+    # Create merged content structure for compatibility with editorial review
+    merged_content = {
+        "title": f"Статья по теме: {topic}",
+        "content": fact_checked_content,
+        "excerpt": f"Автоматически сгенерированная статья на тему: {topic}",
+        "slug": topic.lower().replace(" ", "-")
+    }
     save_artifact(merged_content, paths["fact_check"], "merged_fact_checked_content.json")
 
     # Update wordpress_data with fact-checked content
     wordpress_data["raw_response"] = json.dumps(merged_content, ensure_ascii=False)
 
-    logger.info(f"Fact-checking completed: {len([s for s in fact_checked_sections if s.get('status') == 'fact_checked'])} sections fact-checked")
+    logger.info(f"Fact-checking completed: Combined content length: {len(fact_checked_content)} characters")
 
     # --- Этап 10: Editorial Review ---
     logger.info("Starting editorial review and cleanup...")
