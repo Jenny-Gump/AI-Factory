@@ -756,8 +756,9 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
         sections_path = os.path.join(base_path, "sections")
         os.makedirs(sections_path, exist_ok=True)
 
-    # Generate sections SEQUENTIALLY
+    # Generate sections SEQUENTIALLY with context accumulation
     generated_sections = []
+    ready_sections = ""  # Накопитель контекста предыдущих разделов
 
     for idx, section in enumerate(actual_sections, 1):
         section_num = f"section_{idx}"
@@ -769,20 +770,37 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
             section_path = os.path.join(sections_path, section_num)
             os.makedirs(section_path, exist_ok=True)
 
+        # Prepare ready_sections context
+        if idx == 1:
+            ready_sections = "Это первый раздел статьи."
+        else:
+            # Накапливаем все предыдущие разделы ПОЛНОСТЬЮ
+            logger.info(f"📚 Preparing context from {len(generated_sections)} previous sections")
+            ready_sections_parts = []
+            for prev_section in generated_sections:
+                if prev_section.get("status") == "success" and prev_section.get("content"):
+                    prev_title = prev_section.get("section_title", f"Раздел {prev_section.get('section_num', '')}")
+                    prev_content = prev_section.get("content", "")
+                    ready_sections_parts.append(f"РАЗДЕЛ: {prev_title}\n{prev_content}")
+
+            ready_sections = "\n\n".join(ready_sections_parts) if ready_sections_parts else "Предыдущие разделы недоступны."
+            logger.info(f"📚 Context prepared: {len(ready_sections)} characters from {len(ready_sections_parts)} sections")
+
         logger.info(f"📝 Generating section {idx}/{total_sections}: {section_title}")
 
         for attempt in range(1, SECTION_MAX_RETRIES + 1):
             try:
                 logger.info(f"🔄 Section {idx} attempt {attempt}/{SECTION_MAX_RETRIES}: {section_title}")
 
-                # Prepare section-specific prompt
+                # Prepare section-specific prompt with ready_sections context
                 messages = _load_and_prepare_messages(
                     content_type,
                     "01_generate_section",
                     {
                         "topic": topic,
                         "section_title": section.get("section_title", ""),
-                        "section_structure": json.dumps(section, indent=2, ensure_ascii=False)
+                        "section_structure": json.dumps(section, indent=2, ensure_ascii=False),
+                        "ready_sections": ready_sections
                     }
                 )
 
@@ -834,6 +852,7 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                 }
 
                 generated_sections.append(result)
+                logger.info(f"📚 Section {idx} added to context for next sections")
                 break  # Success, exit retry loop
 
             except Exception as e:
