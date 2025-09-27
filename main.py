@@ -44,13 +44,13 @@ def save_artifact(data, path, filename):
             json.dump(data, f, indent=4, ensure_ascii=False)
     logger.info(f"Saved artifact to {filepath}")
 
-def save_html_with_proper_newlines(content: str, path: str, filename: str):
+def fix_content_newlines(content: str) -> str:
     """
-    Сохраняет HTML контент с правильными переносами строк в code блоках.
-    Преобразует литеральные \n в настоящие переносы ТОЛЬКО внутри <pre><code> тегов.
+    Исправляет экранированные переносы строк в code блоках.
+    Преобразует литеральные \\n в настоящие переносы ТОЛЬКО внутри <pre><code> тегов.
     """
-    os.makedirs(path, exist_ok=True)
-    filepath = os.path.join(path, filename)
+    if not content:
+        return content
 
     # Функция для исправления блоков кода
     def fix_code_block(match):
@@ -76,6 +76,20 @@ def save_html_with_proper_newlines(content: str, path: str, filename: str):
     # Заменяем все блоки кода
     fixed_content = re.sub(pattern, fix_code_block, content, flags=re.DOTALL)
 
+    return fixed_content
+
+
+def save_html_with_proper_newlines(content: str, path: str, filename: str):
+    """
+    Сохраняет HTML контент с правильными переносами строк в code блоках.
+    Использует общую функцию fix_content_newlines() для исправления переносов.
+    """
+    os.makedirs(path, exist_ok=True)
+    filepath = os.path.join(path, filename)
+
+    # Исправляем переносы строк
+    fixed_content = fix_content_newlines(content)
+
     # Сохраняем результат
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(fixed_content)
@@ -86,7 +100,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     """
     Simplified pipeline for generating basic articles with FAQ and sources.
     Improved pipeline with configurable content type for different prompt sets.
-    Этапы: 1-6 поиск/очистка → 7 структуры → 8 ультимативная → 9 генерация → 9.5 факт-чек → 10 редактура → 11 ссылки → 12 публикация
+    Этапы: 1-6 поиск/очистка → 7 структуры → 8 ультимативная → 9 генерация → 9.5 факт-чек → 10 редактура → 11 публикация
     """
     logger.info(f"--- Starting Basic Articles Pipeline for topic: '{topic}' ---")
 
@@ -110,7 +124,6 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         "final_article": os.path.join(base_output_path, "08_article_generation"),
         "fact_check": os.path.join(base_output_path, "09_fact_check"),
         "editorial_review": os.path.join(base_output_path, "10_editorial_review"),
-        "links": os.path.join(base_output_path, "11_link_processing"),
     }
     for path in paths.values():
         os.makedirs(path, exist_ok=True)
@@ -328,6 +341,11 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         content_type=content_type
     )
 
+    # Исправить переносы строк в контенте перед сохранением JSON
+    if isinstance(wordpress_data_final, dict) and "content" in wordpress_data_final:
+        wordpress_data_final["content"] = fix_content_newlines(wordpress_data_final["content"])
+        logger.info("Fixed newlines in wordpress_data_final content for JSON compatibility")
+
     save_artifact(wordpress_data_final, paths["editorial_review"], "wordpress_data_final.json")
 
     if isinstance(wordpress_data_final, dict) and "content" in wordpress_data_final:
@@ -337,53 +355,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.warning("Editorial review returned invalid structure, using original data")
         wordpress_data_final = wordpress_data
 
-    # --- Этап 11: Link Processing ---
-    from src.config import LINK_PROCESSING_ENABLED
-    if LINK_PROCESSING_ENABLED and isinstance(wordpress_data_final, dict) and "content" in wordpress_data_final:
-        logger.info("=== Starting Link Processing Stage ===")
-        try:
-            from src.link_processor import LinkProcessor
-            logger.info("Используем импортированный LinkProcessor...")
-            logger.info("✅ LinkProcessor доступен")
-
-            logger.info("Создаем экземпляр LinkProcessor...")
-            link_processor = LinkProcessor()
-            logger.info("✅ LinkProcessor создан успешно")
-
-            logger.info("Запускаем process_links...")
-            wordpress_data_with_links = link_processor.process_links(
-                wordpress_data=wordpress_data_final,
-                topic=topic,
-                base_path=paths["links"],
-                token_tracker=token_tracker,
-                active_models=active_models,
-                content_type=content_type
-            )
-            logger.info("✅ process_links завершен успешно")
-
-            # Use processed data for WordPress publication
-            wordpress_data_final = wordpress_data_with_links
-
-            # Save updated content and wordpress_data_final
-            if "content" in wordpress_data_final:
-                save_artifact(wordpress_data_final["content"], paths["editorial_review"], "article_content_final_with_links.html")
-                # CRITICAL: Save updated wordpress_data_final.json with links
-                save_artifact(wordpress_data_final, paths["editorial_review"], "wordpress_data_final.json")
-                logger.info("Link processing completed successfully")
-
-        except Exception as e:
-            logger.error(f"Link processing failed, continuing with original data: {e}")
-            logger.error(f"Error type: {type(e).__name__}")
-            import traceback
-            logger.error(f"Full traceback:\n{traceback.format_exc()}")
-            # Continue with original wordpress_data_final
-    else:
-        if not LINK_PROCESSING_ENABLED:
-            logger.info("Link processing disabled in config")
-        else:
-            logger.warning("Link processing skipped - no valid content in wordpress_data_final")
-
-    # --- Этап 12 (опциональный): WordPress Publication ---
+    # --- Этап 11 (опциональный): WordPress Publication ---
     if publish_to_wordpress:
         logger.info("Starting WordPress publication...")
         try:
@@ -423,7 +395,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
 
     Args:
         topic: Тема статьи (используется для поиска существующей папки output)
-        stage: Этап для запуска ('editorial_review', 'link_processing', 'publication')
+        stage: Этап для запуска ('editorial_review', 'publication')
         content_type: Тип контента
         publish_to_wordpress: Публиковать ли в WordPress
     """
@@ -449,9 +421,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
     # Создание путей к этапам
     paths = {
         "fact_check": os.path.join(base_output_path, "09_fact_check"),
-        "editorial_review": os.path.join(base_output_path, "10_editorial_review"),
-        "link_processing": os.path.join(base_output_path, "11_link_processing"),
-        "publication": os.path.join(base_output_path, "12_publication")
+        "editorial_review": os.path.join(base_output_path, "10_editorial_review")
     }
 
     if stage == "editorial_review":
@@ -479,6 +449,11 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
             content_type=content_type
         )
 
+        # Исправить переносы строк в контенте перед сохранением JSON
+        if isinstance(wordpress_data_final, dict) and "content" in wordpress_data_final:
+            wordpress_data_final["content"] = fix_content_newlines(wordpress_data_final["content"])
+            logger.info("Fixed newlines in wordpress_data_final content for JSON compatibility")
+
         save_artifact(wordpress_data_final, paths["editorial_review"], "wordpress_data_final.json")
 
         if isinstance(wordpress_data_final, dict) and "content" in wordpress_data_final:
@@ -494,9 +469,52 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         token_summary = token_tracker.get_session_summary()
         logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
 
+    elif stage == "publication":
+        logger.info("=== Starting WordPress Publication Stage ===")
+
+        # Загрузить готовый wordpress_data_final.json
+        wordpress_data_path = os.path.join(paths["editorial_review"], "wordpress_data_final.json")
+        if not os.path.exists(wordpress_data_path):
+            logger.error(f"Required file not found: {wordpress_data_path}")
+            logger.error("Run editorial_review stage first to create wordpress_data_final.json")
+            return
+
+        with open(wordpress_data_path, 'r', encoding='utf-8') as f:
+            wordpress_data_final = json.load(f)
+
+        logger.info(f"Loaded WordPress data: {wordpress_data_final.get('title', 'No title')}")
+
+        # Применить исправления переносов строк (на всякий случай)
+        if isinstance(wordpress_data_final, dict) and "content" in wordpress_data_final:
+            wordpress_data_final["content"] = fix_content_newlines(wordpress_data_final["content"])
+            logger.info("Applied newline fixes to content")
+
+        if publish_to_wordpress:
+            logger.info("Starting WordPress publication...")
+            try:
+                from src.wordpress_publisher import WordPressPublisher
+                wp_publisher = WordPressPublisher()
+
+                publication_result = wp_publisher.publish_article(wordpress_data_final)
+
+                if publication_result["success"]:
+                    logger.info(f"✅ Article published successfully: {publication_result['url']}")
+                    save_artifact(publication_result, paths["editorial_review"], "wordpress_publication_result.json")
+                else:
+                    logger.error(f"❌ Publication failed: {publication_result['error']}")
+                    save_artifact(publication_result, paths["editorial_review"], "wordpress_publication_error.json")
+
+            except Exception as e:
+                logger.error(f"❌ WordPress publication error: {e}")
+                return
+        else:
+            logger.info("WordPress publication skipped (--skip-publication)")
+
+        logger.info(f"Publication stage completed successfully")
+
     else:
         logger.error(f"Stage '{stage}' not implemented yet")
-        logger.info("Available stages: editorial_review")
+        logger.info("Available stages: editorial_review, publication")
 
 async def main_flow(topic: str, model_overrides: Dict = None, publish_to_wordpress: bool = True, content_type: str = "basic_articles"):
     """Async wrapper function for batch processor compatibility"""
@@ -509,7 +527,7 @@ if __name__ == "__main__":
                        default='basic_articles', help='Type of content to generate')
     parser.add_argument('--skip-publication', action='store_true',
                        help='Skip WordPress publication')
-    parser.add_argument('--start-from-stage', choices=['editorial_review', 'link_processing', 'publication'],
+    parser.add_argument('--start-from-stage', choices=['editorial_review', 'publication'],
                        help='Start pipeline from specific stage (requires existing output folder)')
 
     args = parser.parse_args()

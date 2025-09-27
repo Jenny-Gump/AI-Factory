@@ -38,8 +38,6 @@ LLM_MODELS = {
     "generate_article": "deepseek/deepseek-chat-v3.1:free",
     "fact_check": "perplexity/sonar-reasoning-pro:online",      # Обязательно :online для веб-поиска
     "editorial_review": "deepseek/deepseek-chat-v3.1:free",
-    "link_planning": "deepseek/deepseek-chat-v3.1:free",
-    "link_selection": "deepseek/deepseek-chat-v3.1:free",
 }
 ```
 
@@ -51,8 +49,6 @@ FALLBACK_MODELS = {
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",
     "fact_check": "google/gemini-2.5-flash-lite-preview-06-17",         # Fallback для fact-check
     "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",
-    "link_planning": "google/gemini-2.5-flash-lite-preview-06-17",
-    "link_selection": "google/gemini-2.5-flash-lite-preview-06-17",
 }
 ```
 
@@ -91,22 +87,6 @@ RELEVANCE_SCORE_WEIGHT = 0.3  # Релевантность теме
 DEPTH_SCORE_WEIGHT = 0.2      # Глубина контента
 ```
 
-##  Настройки Link Processing
-
-```python
-# Включить/выключить обработку ссылок
-LINK_PROCESSING_ENABLED = True
-
-# Максимум ссылок для вставки
-LINK_MAX_QUERIES = 15
-
-# Кандидатов на запрос
-LINK_MAX_CANDIDATES_PER_QUERY = 5
-
-# Таймауты для поиска ссылок (секунды)
-LINK_PROCESSING_TIMEOUT = 360  # 6 минут общий
-LINK_SEARCH_TIMEOUT = 6        # На один поиск
-```
 
 ##  WordPress настройки
 
@@ -129,7 +109,6 @@ USE_CUSTOM_META_ENDPOINT = True
 ### Фильтры доменов:
 - `filters/blocked_domains.json` - заблокированные домены
 - `filters/trusted_sources.json` - доверенные источники
-- `filters/preferred_domains.json` - приоритетные для ссылок
 
 ### Retry логика (ОБНОВЛЕНО - Sep 27, 2025):
 ```python
@@ -182,22 +161,31 @@ Editorial Review → Primary Model (DeepSeek)
 - `save_artifact()` записывает эти символы как есть, без преобразования в реальные переносы
 
 **Решение:**
-Добавлена функция `save_html_with_proper_newlines()` в `main.py`:
-- Использует regex для поиска блоков `<pre><code>...</code></pre>`
-- Заменяет `\\n` на настоящие переносы строк ТОЛЬКО внутри code блоков
-- Безопасно: не затрагивает остальной HTML контент
-- Поддерживает атрибуты: `<code class="language-python">`, `<pre class="highlight">`
+Добавлена системная функция `fix_content_newlines()` в `main.py`:
+- Использует общий подход для исправления во всех типах контента (HTML и JSON)
+- Заменяет `\\n` на настоящие переносы строк ТОЛЬКО внутри code блоков и code spans
+- Безопасно: не затрагивает остальной контент
+- Поддерживает множественные форматы: `<pre><code>`, `<code>`, markdown code blocks
 
-**Реализация:**
+**Техническая реализация:**
 ```python
-def save_html_with_proper_newlines(content: str, path: str, filename: str):
-    def fix_code_block(match):
-        # Заменяем literal \\n на реальные переносы только в code блоках
-        fixed_content = match.group(3).replace('\\\\n', '\n')
-        return f"{match.group(1)}{match.group(2)}{fixed_content}{match.group(4)}{match.group(5)}"
+def fix_content_newlines(content):
+    """Исправляет переносы строк в code блоках"""
+    # Исправляем в <pre><code> блоках
+    content = re.sub(
+        r'(<pre[^>]*><code[^>]*>)(.*?)(</code></pre>)',
+        lambda m: m.group(1) + m.group(2).replace('\\n', '\n') + m.group(3),
+        content, flags=re.DOTALL
+    )
 
-    pattern = r'(<pre[^>]*>)(<code[^>]*>)(.*?)(</code>)(</pre>)'
-    return re.sub(pattern, fix_code_block, content, flags=re.DOTALL)
+    # Исправляем в inline <code> блоках
+    content = re.sub(
+        r'(<code[^>]*>)(.*?)(</code>)',
+        lambda m: m.group(1) + m.group(2).replace('\\n', '\n') + m.group(3),
+        content, flags=re.DOTALL
+    )
+
+    return content
 ```
 
 **Результат:**
@@ -212,8 +200,8 @@ model = AutoModel.from_pretrained("model-name")
 ```
 
 **Применение:**
-- Заменен вызов `save_artifact()` на `save_html_with_proper_newlines()` для финального HTML
-- Исправление автоматически применяется ко всем новым статьям
+- Применяется автоматически перед сохранением JSON и HTML файлов
+- Исправление работает во всех этапах pipeline
 - Существующие статьи можно исправить через `--start-from-stage editorial_review`
 
 ### Провайдеры LLM:
@@ -390,7 +378,6 @@ curl -H "Authorization: Bearer $FIRECRAWL_API_KEY" \
 1. Увеличьте `CONCURRENT_REQUESTS` до 8-10
 2. Уменьшите `TOP_N_SOURCES` до 3-4
 3. Уменьшите `MIN_CONTENT_LENGTH` до 5000
-4. Отключите `LINK_PROCESSING_ENABLED`
 
 ##  Оптимизация для качества
 
@@ -398,7 +385,6 @@ curl -H "Authorization: Bearer $FIRECRAWL_API_KEY" \
 1. Увеличьте `TOP_N_SOURCES` до 7-10
 2. Увеличьте `MIN_CONTENT_LENGTH` до 15000
 3. Используйте премиум модели вместо FREE
-4. Увеличьте `LINK_MAX_QUERIES` до 20
 
 ##  Запуск с конкретного этапа
 
@@ -411,7 +397,6 @@ python3 main.py "Topic name" --start-from-stage editorial_review
 
 # Доступные этапы:
 # - editorial_review: этап редактуры и финальной обработки
-# - link_processing: обработка и вставка ссылок (планируется)
 # - publication: публикация в WordPress (планируется)
 ```
 

@@ -46,15 +46,6 @@ CUSTOM_POST_META_API_KEY = os.getenv("CUSTOM_POST_META_API_KEY", "")
 WORDPRESS_CATEGORY = os.getenv("WORDPRESS_CATEGORY", "prompts")
 WORDPRESS_STATUS = os.getenv("WORDPRESS_STATUS", "draft")
 
-# --- Link Processing Configuration ---
-LINK_PROCESSING_ENABLED = True  # Enable/disable link processing stage
-LINK_MAX_QUERIES = 15  # Maximum number of search queries per article
-LINK_MAX_CANDIDATES_PER_QUERY = 5  # Maximum candidates to fetch per query
-LINK_PROCESSING_TIMEOUT = 360  # Maximum time in seconds for link processing (6 minutes)
-LINK_SEARCH_TIMEOUT = 6  # Timeout per search request in seconds
-LINK_HEAD_CHECK_TIMEOUT = 2  # Timeout for HEAD requests in seconds
-LINK_MAX_CONCURRENT = 5  # Maximum concurrent search requests
-LINK_MIN_SUCCESS_RATE = 0.7  # Minimum success rate for link resolution (70%)
 
 # --- LLM Models Configuration ---
 # Models for different pipeline stages
@@ -64,8 +55,6 @@ LLM_MODELS = {
     "generate_article": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for WordPress article generation
     "fact_check": "perplexity/sonar-reasoning-pro:online",              # Perplexity for fact-checking sections via web search
     "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for editorial formatting and structure
-    "link_planning": "deepseek/deepseek-chat-v3.1:free",                # FREE Model for link planning
-    "link_selection": "deepseek/deepseek-chat-v3.1:free",               # FREE Model for link selection from candidates
 }
 
 # Fallback models for each stage (used when primary model fails)
@@ -75,8 +64,6 @@ FALLBACK_MODELS = {
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "fact_check": "google/gemini-2.5-flash-lite-preview-06-17",         # Fallback to Gemini 2.5
     "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
-    "link_planning": "google/gemini-2.5-flash-lite-preview-06-17",      # Fallback to Gemini 2.5
-    "link_selection": "google/gemini-2.5-flash-lite-preview-06-17",     # Fallback to Gemini 2.5
 }
 
 # Retry configuration for LLM requests

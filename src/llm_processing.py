@@ -1145,6 +1145,22 @@ def _convert_markdown_to_html(markdown_content: str) -> str:
 
     content = markdown_content.strip()
 
+    # Convert code blocks using placeholder approach
+    code_blocks = []
+    def extract_code_block(match):
+        language = match.group(1) if match.group(1) else ''
+        code_content = match.group(2)
+        if language:
+            html_code = f"<pre><code class='language-{language}'>{code_content}</code></pre>"
+        else:
+            html_code = f"<pre><code>{code_content}</code></pre>"
+        placeholder = f"__CODE_BLOCK_{len(code_blocks)}__"
+        code_blocks.append(html_code)
+        return placeholder
+
+    # Extract code blocks first
+    content = re.sub(r'```(\w+)?\n(.*?)\n```', extract_code_block, content, flags=re.DOTALL)
+
     # Convert markdown headers
     content = re.sub(r'^## (.+)$', r'<h2>\1</h2>', content, flags=re.MULTILINE)
     content = re.sub(r'^### (.+)$', r'<h3>\1</h3>', content, flags=re.MULTILINE)
@@ -1189,7 +1205,8 @@ def _convert_markdown_to_html(markdown_content: str) -> str:
             else:
                 # Wrap non-header content in paragraphs
                 if not (stripped.startswith('<h') or stripped.startswith('<ul') or
-                       stripped.startswith('<li') or stripped.startswith('<br')):
+                       stripped.startswith('<li') or stripped.startswith('<br') or
+                       stripped.startswith('<pre') or '</pre>' in stripped):
                     html_lines.append(f'<p>{stripped}</p>')
                 else:
                     html_lines.append(stripped)
