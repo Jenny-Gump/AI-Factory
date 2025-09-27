@@ -3,12 +3,13 @@
   "topics_file": "topics_guides.txt",
   "total_topics": 2,
   "completed_topics": [
-    "Deepseek local model installation guide step by step for beginners"
+    "Deepseek local model installation guide step by step for beginners",
+    "Mistral local model installation guide step by step for beginners"
   ],
   "failed_topics": [],
   "current_topic": null,
   "start_time": "2025-09-26T23:35:23.252151",
-  "last_update_time": "2025-09-27T00:02:18.697514",
+  "last_update_time": "2025-09-27T00:37:43.054642",
   "topic_statuses": {
     "Deepseek local model installation guide step by step for beginners": {
       "topic": "Deepseek local model installation guide step by step for beginners",
@@ -22,10 +23,10 @@
     },
     "Mistral local model installation guide step by step for beginners": {
       "topic": "Mistral local model installation guide step by step for beginners",
-      "status": "pending",
-      "start_time": null,
-      "end_time": null,
-      "attempts": 0,
+      "status": "completed",
+      "start_time": "2025-09-27T00:02:23.701940",
+      "end_time": "2025-09-27T00:37:37.992955",
+      "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
       "wordpress_url": null

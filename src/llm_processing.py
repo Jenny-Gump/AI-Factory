@@ -1396,7 +1396,7 @@ def merge_sections(sections: List[Dict], topic: str, structure: List[Dict]) -> D
 def editorial_review(raw_response: str, topic: str, base_path: str = None,
                     token_tracker: TokenTracker = None, model_name: str = None, content_type: str = "basic_articles") -> Dict[str, Any]:
     """
-    Performs editorial review and cleanup of WordPress article data.
+    Performs editorial review and cleanup of WordPress article data with advanced retry and fallback logic.
 
     Args:
         raw_response: Raw response string from generate_wordpress_article()
@@ -1405,24 +1405,14 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
         token_tracker: Token usage tracker
         model_name: Override model name (uses config default if None)
     """
-    logger.info("Starting editorial review and cleanup...")
+    logger.info("🔧 Starting editorial review with advanced retry logic...")
     
     # Check for error responses
     if raw_response.startswith("ERROR:"):
         logger.error(f"Received error from previous stage: {raw_response}")
-        return {
-            "title": f"Ошибка генерации: {topic}",
-            "content": f"<p>Ошибка на предыдущем этапе: {raw_response}</p>",
-            "excerpt": "Ошибка генерации статьи",
-            "slug": "generation-error",
-            "categories": ["prompts"],
-            "_yoast_wpseo_title": "Ошибка генерации",
-            "_yoast_wpseo_metadesc": "Ошибка при генерации статьи",
-            "image_caption": "Ошибка",
-            "focus_keyword": "ошибка"
-        }
+        return _create_error_response(topic, f"Ошибка на предыдущем этапе: {raw_response}", "generation-error")
     
-    # Call LLM for editorial review
+    # Prepare messages
     try:
         messages = _load_and_prepare_messages(
             content_type,
@@ -1432,183 +1422,184 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
                 "topic": topic
             }
         )
-
-        # Prepare request parameters
-        request_params = {
-            "stage_name": "editorial_review",
-            "model_name": model_name,
-            "messages": messages,
-            "token_tracker": token_tracker,
-            "base_path": base_path,
-            "temperature": 0.2,  # Lower temperature for more consistent editing
-        }
-
-        # Only add response_format for non-perplexity models (perplexity doesn't support it)
-        current_model = model_name or LLM_MODELS.get("editorial_review", DEFAULT_MODEL)
-        if not current_model.startswith("perplexity/"):
-            request_params["response_format"] = {"type": "json_object"}  # Enforce JSON response
-
-        # Use new retry system
-        response_obj, actual_model = _make_llm_request_with_retry(**request_params)
-        response = response_obj.choices[0].message.content
-
-        # Save LLM interaction for debugging
-        if base_path:
-            save_llm_interaction(
-                base_path=base_path,
-                stage_name="editorial_review",
-                messages=messages,
-                response=response,
-                extra_params={
-                    "topic": topic,
-                    "purpose": "editorial_review_and_cleanup",
-                    "model": actual_model
-                }
-            )
-        
-        # Parse JSON response with enhanced error handling
-        try:
-            # Clean up response - extra cleaning for Gemini models
-            cleaned_response = response.strip()
-
-            # Special handling for Gemini models which often add markdown
-            if "gemini" in actual_model.lower():
-                logger.info("🧹 Applying Gemini-specific JSON cleanup...")
-                # Remove markdown code blocks
-                if cleaned_response.startswith('```'):
-                    # Find the end of the first line (language specifier)
-                    first_newline = cleaned_response.find('\n')
-                    if first_newline > 0:
-                        cleaned_response = cleaned_response[first_newline+1:]
-                if cleaned_response.endswith('```'):
-                    cleaned_response = cleaned_response[:-3]
-            else:
-                # Standard cleanup for other models
-                if cleaned_response.startswith('```json'):
-                    cleaned_response = cleaned_response[7:]
-                if cleaned_response.endswith('```'):
-                    cleaned_response = cleaned_response[:-3]
-
-            cleaned_response = cleaned_response.strip()
-            
-            # Try to parse JSON
-            edited_data = json.loads(cleaned_response)
-            logger.info(f"Successfully completed editorial review: {edited_data.get('title', 'No title')}")
-            return edited_data
-            
-        except json.JSONDecodeError as e:
-            logger.warning(f"Standard JSON parsing failed: {e}")
-            logger.info("Attempting enhanced JSON cleanup and parsing...")
-            
-            # Enhanced JSON cleaning attempts
-            try:
-                import re
-                
-                # Try multiple cleanup approaches
-                for attempt in range(1, 5):
-                    logger.info(f"JSON cleanup attempt {attempt}...")
-                    
-                    if attempt == 1:
-                        # Basic cleanup - fix common escaping issues
-                        fixed_response = response.strip()
-                        # Fix double escaping
-                        fixed_response = re.sub(r'\\\\"', '"', fixed_response)
-                        # Fix unescaped quotes in HTML attributes
-                        fixed_response = re.sub(r'class="([^"]*)"', r"class='\1'", fixed_response)
-                        fixed_response = re.sub(r'language-([^"]*)"', r"language-\1'", fixed_response)
-                        
-                    elif attempt == 2:
-                        # Try to extract JSON block from response
-                        json_match = re.search(r'\{.*\}', response, re.DOTALL)
-                        if json_match:
-                            fixed_response = json_match.group(0)
-                        else:
-                            continue
-                            
-                    elif attempt == 3:
-                        # Fix incomplete JSON (missing closing braces)
-                        fixed_response = response.strip()
-                        brace_count = fixed_response.count('{') - fixed_response.count('}')
-                        if brace_count > 0:
-                            fixed_response += '}' * brace_count
-                            
-                    elif attempt == 4:
-                        # Last resort: extract JSON fields manually
-                        extracted_data = {}
-                        
-                        # Extract title
-                        title_match = re.search(r'"title":\s*"([^"]*(?:\\.[^"]*)*)"', response)
-                        if title_match:
-                            extracted_data["title"] = title_match.group(1).replace('\\"', '"')
-                            
-                        # Extract other fields
-                        for field in ["excerpt", "slug", "_yoast_wpseo_title", "_yoast_wpseo_metadesc", "image_caption", "focus_keyword"]:
-                            field_match = re.search(f'"{field}":\\s*"([^"]*(?:\\\\.[^"]*)*)"', response)
-                            if field_match:
-                                extracted_data[field] = field_match.group(1).replace('\\"', '"')
-                        
-                        # Extract categories
-                        categories_match = re.search(r'"categories":\s*\[(.*?)\]', response, re.DOTALL)
-                        if categories_match:
-                            categories_str = categories_match.group(1)
-                            categories = [cat.strip().strip('"') for cat in categories_str.split(',') if cat.strip()]
-                            extracted_data["categories"] = categories
-                        
-                        # Extract content (complex)
-                        content_match = re.search(r'"content":\s*"(.*?)(?=",\s*"[^"]+"|$)', response, re.DOTALL)
-                        if content_match:
-                            content = content_match.group(1)
-                            # Basic unescape
-                            content = content.replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t')
-                            extracted_data["content"] = content
-                        
-                        if len(extracted_data) >= 6:
-                            logger.info(f"Manual field extraction successful: {len(extracted_data)} fields")
-                            return extracted_data
-                        else:
-                            continue
-                    
-                    # Try to parse the fixed response
-                    try:
-                        edited_data = json.loads(fixed_response)
-                        logger.info(f"JSON cleanup attempt {attempt} successful!")
-                        return edited_data
-                    except json.JSONDecodeError:
-                        continue
-                        
-                # All attempts failed
-                logger.error("All JSON cleanup attempts failed")
-                
-            except Exception as cleanup_err:
-                logger.error(f"JSON cleanup failed: {cleanup_err}")
-            
-            # Final fallback - return error response
-            logger.error(f"Response length: {len(response)} characters")
-            logger.error(f"First 300 chars: {response[:300]}")
-            logger.error(f"Last 300 chars: {response[-300:]}")
-            
-            return {
-                "title": f"Ошибка парсинга JSON: {topic}",
-                "content": f"<p>Не удалось распарсить JSON ответ от редактора после всех попыток очистки. Ответ получен полностью ({len(response)} символов).</p><details><summary>Сырой ответ</summary><pre>{response[:2000]}</pre></details>",
-                "excerpt": "Ошибка парсинга JSON ответа",
-                "slug": "json-parsing-error", 
-                "categories": ["prompts"],
-                "_yoast_wpseo_title": "Ошибка парсинга JSON",
-                "_yoast_wpseo_metadesc": "Произошла ошибка при парсинге JSON ответа от редактора",
-                "image_caption": "Ошибка парсинга JSON",
-                "focus_keyword": "промпты"
-            }
-                
     except Exception as e:
-        logger.error(f"Critical error during editorial review: {e}")
-        return {
-            "title": f"Критическая ошибка: {topic}",
-            "content": f"<p>Критическая ошибка при редактуре: {str(e)}</p>",
-            "excerpt": "Критическая ошибка обработки",
-            "slug": "critical-error",
-            "categories": ["prompts"],
-            "_yoast_wpseo_title": "Критическая ошибка",
-            "_yoast_wpseo_metadesc": "Произошла критическая ошибка при обработке",
-            "image_caption": "Критическая ошибка",
-            "focus_keyword": "ошибка"
-        }
+        logger.error(f"Failed to load editorial review prompt: {e}")
+        return _create_error_response(topic, f"Ошибка загрузки промпта: {str(e)}", "prompt-error")
+
+    # Get models to try
+    primary_model = model_name or LLM_MODELS.get("editorial_review", DEFAULT_MODEL)
+    fallback_model = FALLBACK_MODELS.get("editorial_review")
+
+    models_to_try = [
+        {"model": primary_model, "label": "primary"},
+        {"model": fallback_model, "label": "fallback"} if fallback_model and fallback_model != primary_model else None
+    ]
+    models_to_try = [m for m in models_to_try if m is not None]
+
+    logger.info(f"🎯 Editorial review plan: {len(models_to_try)} model(s) to try")
+    for i, model_info in enumerate(models_to_try):
+        logger.info(f"   {i+1}. {model_info['label']}: {model_info['model']}")
+
+    # Main retry loop with models
+    for model_index, model_info in enumerate(models_to_try):
+        current_model = model_info["model"]
+        model_label = model_info["label"]
+
+        logger.info(f"🤖 Attempting editorial review with {model_label} model: {current_model}")
+
+        # Retry loop for current model (3 attempts)
+        for attempt in range(1, 4):
+            logger.info(f"📝 Editorial review attempt {attempt}/3 with {model_label} model...")
+
+            try:
+                # Make LLM request (this handles its own retries internally)
+                response_obj, actual_model = _make_llm_request_with_retry_sync(
+                    stage_name="editorial_review",
+                    model_name=current_model,
+                    messages=messages,
+                    token_tracker=token_tracker,
+                    base_path=base_path,
+                    temperature=0.2,
+                    response_format={"type": "json_object"} if not current_model.startswith("perplexity/") else None
+                )
+
+                response = response_obj.choices[0].message.content
+
+                # Save interaction with attempt info
+                if base_path:
+                    save_llm_interaction(
+                        base_path=base_path,
+                        stage_name="editorial_review",
+                        messages=messages,
+                        response=response,
+                        request_id=f"{model_label}_attempt_{attempt}",
+                        extra_params={
+                            "topic": topic,
+                            "model_label": model_label,
+                            "attempt": attempt,
+                            "model": actual_model
+                        }
+                    )
+
+                # Try to parse JSON with normalization (4 attempts)
+                parsed_result = _try_parse_editorial_json(response, actual_model, attempt, model_label)
+
+                if parsed_result is not None:
+                    logger.info(f"✅ Editorial review SUCCESS on {model_label} model, attempt {attempt}")
+                    logger.info(f"📄 Article title: {parsed_result.get('title', 'No title')}")
+                    return parsed_result
+                else:
+                    logger.warning(f"❌ JSON parsing failed for {model_label} model, attempt {attempt}")
+
+            except Exception as e:
+                logger.error(f"❌ {model_label} model attempt {attempt} failed with exception: {e}")
+
+        logger.warning(f"💥 All 3 attempts failed for {model_label} model: {current_model}")
+
+    # All models and attempts failed
+    logger.error(f"🚨 EDITORIAL REVIEW COMPLETELY FAILED - all models exhausted")
+    logger.error(f"Models tried: {[m['model'] for m in models_to_try]}")
+
+    return _create_error_response(
+        topic,
+        "Не удалось выполнить редакторскую правку после всех попыток с основной и резервной моделями",
+        "editorial-failure"
+    )
+
+
+def _try_parse_editorial_json(response: str, model_name: str, attempt: int, model_label: str) -> Dict[str, Any]:
+    """
+    Attempts to parse JSON from editorial review response with 4 normalization attempts.
+
+    Returns:
+        Parsed JSON dict if successful, None if failed
+    """
+    logger.info(f"🔍 Parsing JSON from {model_label} model (attempt {attempt})...")
+
+    # Attempt 1: Direct parsing
+    try:
+        cleaned_response = response.strip()
+
+        # Special handling for Gemini models
+        if "gemini" in model_name.lower():
+            logger.info("🧹 Applying Gemini-specific cleanup...")
+            if cleaned_response.startswith('```'):
+                first_newline = cleaned_response.find('\n')
+                if first_newline > 0:
+                    cleaned_response = cleaned_response[first_newline+1:]
+            if cleaned_response.endswith('```'):
+                cleaned_response = cleaned_response[:-3]
+        else:
+            # Standard cleanup
+            if cleaned_response.startswith('```json'):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.endswith('```'):
+                cleaned_response = cleaned_response[:-3]
+
+        cleaned_response = cleaned_response.strip()
+        parsed = json.loads(cleaned_response)
+        logger.info("✅ Direct JSON parsing successful")
+        return parsed
+
+    except json.JSONDecodeError as e:
+        logger.info(f"❌ Direct parsing failed: {e}")
+
+    # Attempts 2-4: Enhanced normalization
+    import re
+
+    for cleanup_attempt in range(1, 4):
+        logger.info(f"🛠️ JSON normalization attempt {cleanup_attempt}/3...")
+
+        try:
+            if cleanup_attempt == 1:
+                # Fix common escaping issues
+                fixed_response = response.strip()
+                fixed_response = re.sub(r'\\\\"', '"', fixed_response)
+                fixed_response = re.sub(r'class="([^"]*)"', r"class='\1'", fixed_response)
+                fixed_response = re.sub(r'language-([^"]*)"', r"language-\1'", fixed_response)
+
+            elif cleanup_attempt == 2:
+                # Extract JSON block
+                json_match = re.search(r'\{.*\}', response, re.DOTALL)
+                if not json_match:
+                    continue
+                fixed_response = json_match.group(0)
+
+            elif cleanup_attempt == 3:
+                # Fix incomplete JSON
+                fixed_response = response.strip()
+                brace_count = fixed_response.count('{') - fixed_response.count('}')
+                if brace_count > 0:
+                    fixed_response += '}' * brace_count
+
+            # Try parsing
+            parsed = json.loads(fixed_response)
+            logger.info(f"✅ JSON normalization attempt {cleanup_attempt} successful")
+            return parsed
+
+        except json.JSONDecodeError:
+            logger.info(f"❌ Normalization attempt {cleanup_attempt} failed")
+            continue
+
+    # All normalization attempts failed
+    logger.error("💥 All JSON normalization attempts failed")
+    logger.error(f"Response length: {len(response)} characters")
+    logger.error(f"First 300 chars: {response[:300]}")
+    logger.error(f"Last 300 chars: {response[-300:]}")
+
+    return None
+
+
+def _create_error_response(topic: str, error_message: str, error_type: str) -> Dict[str, Any]:
+    """Creates a standardized error response for editorial review failures."""
+    return {
+        "title": f"Ошибка обработки: {topic}",
+        "content": f"<p>{error_message}</p>",
+        "excerpt": "Ошибка при обработке статьи",
+        "slug": error_type,
+        "categories": ["prompts"],
+        "_yoast_wpseo_title": "Ошибка обработки",
+        "_yoast_wpseo_metadesc": error_message[:150],
+        "image_caption": "Ошибка",
+        "focus_keyword": "ошибка"
+    }
