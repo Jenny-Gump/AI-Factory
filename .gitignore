@@ -37,6 +37,15 @@ logs/
 *.log
 app.log
 
+# Test files and temporary outputs
+test_*.py
+test_*.txt
+test_*.json
+gemini_*.json
+gemini_*.txt
+test_output*/
+factcheck_result.txt
+
 # Temporary files
 *.tmp
 *.temp

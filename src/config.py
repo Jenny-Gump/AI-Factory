@@ -53,7 +53,7 @@ LLM_MODELS = {
     "extract_prompts": "deepseek/deepseek-chat-v3.1:free",              # FREE Model for prompt extraction from articles
     "create_structure": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for creating ultimate structure (basic_articles)
     "generate_article": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for WordPress article generation
-    "fact_check": "perplexity/sonar-reasoning-pro:online",              # Perplexity for fact-checking sections via web search
+    "fact_check": "gemini-2.5-flash",                                   # Google Gemini with native web search for fact-checking
     "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for editorial formatting and structure
 }
 
@@ -62,7 +62,7 @@ FALLBACK_MODELS = {
     "extract_prompts": "google/gemini-2.5-flash-lite-preview-06-17",    # Fallback to Gemini 2.5
     "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
-    "fact_check": "google/gemini-2.5-flash-lite-preview-06-17",         # Fallback to Gemini 2.5
+    "fact_check": "deepseek/deepseek-chat-v3.1:free",                   # Fallback to DeepSeek (no web search)
     "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
 }
 
@@ -87,13 +87,23 @@ LLM_PROVIDERS = {
         "base_url": "https://api.deepseek.com",
         "api_key_env": "DEEPSEEK_API_KEY",
         "models": [
-            "deepseek-reasoner", 
+            "deepseek-reasoner",
             "deepseek-chat"
         ]
     },
+    "google_direct": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta",
+        "api_key_env": "GEMINI_API_KEY",
+        "models": [
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-2.0-flash"
+        ],
+        "supports_web_search": True
+    },
     "openrouter": {
         "base_url": "https://openrouter.ai/api/v1",
-        "api_key_env": "OPENROUTER_API_KEY", 
+        "api_key_env": "OPENROUTER_API_KEY",
         "models": [
             "openai/gpt-4o",
             "openai/gpt-4o-mini",

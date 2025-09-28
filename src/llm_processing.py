@@ -3,8 +3,9 @@ import json
 import re
 import time
 import asyncio
+import requests
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 from dotenv import load_dotenv
 import openai
 
@@ -24,35 +25,39 @@ def clear_llm_clients_cache():
     _clients_cache.clear()
     logger.info("LLM clients cache cleared")
 
-def get_llm_client(model_name: str) -> openai.OpenAI:
-    """Get appropriate LLM client for the given model."""
+def get_llm_client(model_name: str) -> Union[openai.OpenAI, str]:
+    """Get appropriate LLM client for the given model. Returns 'google_direct' for Google's native API."""
     provider = get_provider_for_model(model_name)
-    
+
+    # Special handling for Google's direct API
+    if provider == "google_direct":
+        return "google_direct"  # Signal to use direct HTTP requests
+
     # Return cached client if available
     if provider in _clients_cache:
         return _clients_cache[provider]
-    
+
     provider_config = LLM_PROVIDERS[provider]
     api_key = os.getenv(provider_config["api_key_env"])
-    
+
     if not api_key:
         raise ValueError(f"API key not found for provider {provider}. Check {provider_config['api_key_env']} in .env")
-    
+
     # Create client with provider-specific configuration
     client_kwargs = {
         "api_key": api_key,
         "base_url": provider_config["base_url"]
     }
-    
+
     # Add extra headers for OpenRouter
     if "extra_headers" in provider_config:
         client_kwargs["default_headers"] = provider_config["extra_headers"]
-    
+
     client = openai.OpenAI(**client_kwargs)
-    
+
     # Cache the client
     _clients_cache[provider] = client
-    
+
     return client
 
 def save_llm_interaction(base_path: str, stage_name: str, messages: List[Dict], 
@@ -401,6 +406,101 @@ async def _make_llm_request_with_timeout(stage_name: str, model_name: str, messa
     raise Exception(f"All models failed for {stage_name}: {models_to_try}")
 
 
+def _make_google_direct_request(model_name: str, messages: list, **kwargs):
+    """
+    Makes direct HTTP request to Google Gemini API with proper format conversion.
+    Converts OpenAI messages format to Google's contents format.
+    """
+    from types import SimpleNamespace
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY not found in environment")
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    # Convert OpenAI messages format to Google contents format
+    system_content = ""
+    user_content = ""
+
+    for message in messages:
+        if message["role"] == "system":
+            system_content = message["content"]
+        elif message["role"] == "user":
+            user_content = message["content"]
+
+    # Combine system and user content for Google format
+    combined_content = f"{system_content}\n\n{user_content}" if system_content else user_content
+
+    # Build Google API request
+    request_data = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": combined_content
+                    }
+                ]
+            }
+        ],
+        "generationConfig": {
+            "maxOutputTokens": 30000,  # High limit for fact-checking
+            "temperature": kwargs.get("temperature", 0.3),
+            "topP": 0.8,
+            "topK": 40
+        }
+    }
+
+    # Add web search tools for fact-checking
+    if model_name == "gemini-2.5-flash":
+        request_data["tools"] = [
+            {
+                "google_search": {}
+            }
+        ]
+
+    response = requests.post(url, headers=headers, json=request_data)
+
+    if response.status_code != 200:
+        raise Exception(f"Google API error: HTTP {response.status_code} - {response.text}")
+
+    result = response.json()
+
+    if "candidates" not in result or not result["candidates"]:
+        raise Exception("No candidates in Google API response")
+
+    candidate = result["candidates"][0]
+
+    if "content" not in candidate:
+        raise Exception("No content in Google API response")
+
+    content = candidate["content"]["parts"][0]["text"]
+
+    # Create OpenAI-compatible response object
+    response_obj = SimpleNamespace()
+    response_obj.choices = [SimpleNamespace()]
+    response_obj.choices[0].message = SimpleNamespace()
+    response_obj.choices[0].message.content = content
+    response_obj.choices[0].finish_reason = candidate.get("finishReason", "stop")
+
+    # Create usage info (estimated from content length)
+    response_obj.usage = SimpleNamespace()
+    response_obj.usage.prompt_tokens = len(combined_content) // 4  # Rough estimate
+    response_obj.usage.completion_tokens = len(content) // 4
+    response_obj.usage.total_tokens = response_obj.usage.prompt_tokens + response_obj.usage.completion_tokens
+
+    # Add missing attributes for OpenAI compatibility
+    response_obj.usage.completion_tokens_details = None
+    response_obj.usage.prompt_tokens_details = None
+
+    return response_obj
+
+
 def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages: list,
                                 token_tracker: TokenTracker = None, base_path: str = None, **kwargs) -> tuple:
     """
@@ -414,11 +514,15 @@ def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages
         try:
             client = get_llm_client(model_name)
 
-            response_obj = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                **kwargs
-            )
+            # Handle Google's direct API
+            if client == "google_direct":
+                response_obj = _make_google_direct_request(model_name, messages, **kwargs)
+            else:
+                response_obj = client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    **kwargs
+                )
 
             # СОХРАНЕНИЕ СЫРОГО ОТВЕТА В ПАПКЕ ЭТАПА
             raw_response_content = response_obj.choices[0].message.content
