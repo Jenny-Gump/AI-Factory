@@ -139,6 +139,18 @@ def _parse_json_from_response(response_content: str, stage_context: str = "unkno
         response_content = response_content[4:-4].strip()
         logger.info("Removed ``` markdown wrapper")
 
+    # Fix common JSON errors from DeepSeek
+    if ',"{"' in response_content or '},"' in response_content:
+        # Pattern 1: },"{"section_title" -> },{"section_title"
+        response_content = response_content.replace('},"{"', '},{')
+        # Pattern 2: }," "writing_guidelines" -> },"writing_guidelines"
+        response_content = response_content.replace('}," "', '},"')
+        logger.info("Fixed DeepSeek JSON delimiter issues")
+
+    # Remove any standalone quotes between array elements using regex
+    import re
+    response_content = re.sub(r'\},\s*"\s*\{', '},{', response_content)
+
     # Attempt 1: Parse as-is and apply SMART FORMATTING
     try:
         parsed = json.loads(response_content)

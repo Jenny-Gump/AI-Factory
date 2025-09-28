@@ -1,3 +1,4 @@
 Generate Knowledge (GK) prompting technique guide, template, best practices
 Prompt Chaining prompting technique guide, template, best practices
-Self-Consistency prompting technique guide, template, best practices
+Maieutic Prompting technique guide, template, best practices
+JSON Prompting technique guide, template, best practices

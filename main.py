@@ -25,7 +25,7 @@ from src.llm_processing import (
 )
 from src.wordpress_publisher import WordPressPublisher
 from src.token_tracker import TokenTracker
-from src.config import LLM_MODELS
+from src.config import LLM_MODELS, FALLBACK_MODELS
 from batch_config import CONTENT_TYPES, get_content_type_config
 from typing import Dict
 
@@ -254,29 +254,64 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         {"topic": topic, "article_text": json.dumps(all_structures, indent=2)}
     )
 
-    response_obj, actual_model = _make_llm_request_with_retry(
-        stage_name="create_structure",
-        model_name=active_models.get("create_structure"),
-        messages=messages,
-        token_tracker=token_tracker,
-        base_path=paths["ultimate_structure"],
-        temperature=0.3
-    )
+    # Try with primary model first, then fallback if JSON parsing fails
+    ultimate_structure = None
+    models_to_try = [
+        active_models.get("create_structure"),
+        FALLBACK_MODELS.get("create_structure")  # google/gemini-2.5-flash-lite-preview-06-17
+    ]
 
-    content = response_obj.choices[0].message.content
-    save_llm_interaction(
-        base_path=paths["ultimate_structure"],
-        stage_name="create_structure",
-        messages=messages,
-        response=content,
-        request_id="ultimate_structure"
-    )
+    for model_idx, current_model in enumerate(models_to_try):
+        if not current_model or (model_idx > 0 and current_model == models_to_try[0]):
+            continue  # Skip if no fallback or same as primary
 
-    ultimate_structure = _parse_json_from_response(content)
-    save_artifact(ultimate_structure, paths["ultimate_structure"], "ultimate_structure.json")
+        model_label = "primary" if model_idx == 0 else "fallback"
 
-    if not ultimate_structure:
-        logger.error("Could not create ultimate structure. Exiting.")
+        for attempt in range(1, 4):  # 3 attempts per model
+            try:
+                logger.info(f"🔄 Create structure attempt {attempt}/3 with {model_label} model: {current_model}")
+
+                response_obj, actual_model = _make_llm_request_with_retry(
+                    stage_name="create_structure",
+                    model_name=current_model,
+                    messages=messages,
+                    token_tracker=token_tracker,
+                    base_path=paths["ultimate_structure"],
+                    temperature=0.3
+                )
+
+                content = response_obj.choices[0].message.content
+                save_llm_interaction(
+                    base_path=paths["ultimate_structure"],
+                    stage_name="create_structure",
+                    messages=messages,
+                    response=content,
+                    request_id=f"ultimate_structure_{model_label}_attempt{attempt}"
+                )
+
+                ultimate_structure = _parse_json_from_response(content)
+
+                if ultimate_structure and ultimate_structure != []:
+                    logger.info(f"✅ Successfully parsed structure with {current_model} on attempt {attempt}")
+                    save_artifact(ultimate_structure, paths["ultimate_structure"], "ultimate_structure.json")
+                    break
+                else:
+                    logger.warning(f"❌ Invalid JSON from {current_model} on attempt {attempt}")
+                    if attempt < 3:
+                        time.sleep(2)  # Small delay before retry
+                    elif model_idx == 0 and models_to_try[1]:
+                        logger.warning(f"🔄 Primary model failed, switching to fallback model...")
+
+            except Exception as e:
+                logger.error(f"Error with {current_model} on attempt {attempt}: {e}")
+                if attempt < 3:
+                    time.sleep(2)
+
+        if ultimate_structure:
+            break
+
+    if not ultimate_structure or ultimate_structure == []:
+        logger.error("Failed to create valid structure with all models and attempts. Exiting.")
         return
 
     # --- Этап 9: Генерация WordPress статьи по секциям ---
