@@ -4,7 +4,7 @@ import os
 import json
 import re
 import argparse
-from src.logger_config import logger
+from src.logger_config import logger, configure_logging
 from src.firecrawl_client import FirecrawlClient
 from src.processing import (
     filter_urls,
@@ -96,7 +96,7 @@ def save_html_with_proper_newlines(content: str, path: str, filename: str):
 
     logger.info(f"Saved HTML with proper newlines to {filepath}")
 
-async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True, content_type: str = "basic_articles"):
+async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True, content_type: str = "basic_articles", verbose: bool = False):
     """
     Simplified pipeline for generating basic articles with FAQ and sources.
     Improved pipeline with configurable content type for different prompt sets.
@@ -343,8 +343,8 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.error("No generated sections found for fact-checking. Exiting.")
         return
 
-    # Get combined fact-checked content directly
-    fact_checked_content = fact_check_sections(
+    # Get combined fact-checked content and status
+    fact_checked_content, fact_check_status = fact_check_sections(
         sections=generated_sections,
         topic=topic,
         base_path=paths["fact_check"],
@@ -355,6 +355,30 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
 
     # Save the combined fact-checked content
     save_artifact({"content": fact_checked_content}, paths["fact_check"], "fact_checked_content.json")
+
+    # Save fact-check status for reference
+    save_artifact(fact_check_status, paths["fact_check"], "fact_check_status.json")
+
+    # Check for fact-check failures and show warning
+    fact_check_failed = not fact_check_status.get("success", True)
+    if fact_check_failed:
+        failed_groups = fact_check_status.get("failed_groups", 0)
+        total_groups = fact_check_status.get("total_groups", 0)
+        failed_sections = fact_check_status.get("failed_sections", [])
+
+        # Display bright warning
+        border = "🔥" * 60
+        logger.warning(f"\n{border}")
+        logger.warning(f"⚠️  CRITICAL: FACT-CHECK FAILED")
+        logger.warning(f"Failed groups: {failed_groups}/{total_groups}")
+        if failed_sections:
+            logger.warning(f"Failed sections: {', '.join(failed_sections[:5])}")  # Show first 5 sections
+            if len(failed_sections) > 5:
+                logger.warning(f"... and {len(failed_sections) - 5} more sections")
+        logger.warning(f"Article contains UNVERIFIED CONTENT - Manual review required!")
+        logger.warning(f"{border}\n")
+    else:
+        logger.info(f"✅ Fact-checking passed: All {fact_check_status.get('total_groups', 0)} groups verified")
 
     # Create merged content structure for compatibility with editorial review
     merged_content = {
@@ -423,6 +447,15 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     logger.info(f"Topic: {topic}")
     logger.info(f"Final article title: {wordpress_data_final.get('title', 'No title')}")
 
+    # Show fact-check warning in final summary if needed
+    if fact_check_failed:
+        border = "🔥" * 60
+        logger.warning(f"\n{border}")
+        logger.warning(f"⚠️  FINAL WARNING: Article contains UNVERIFIED CONTENT")
+        logger.warning(f"Fact-check failed for {fact_check_status.get('failed_groups', 0)} groups")
+        logger.warning(f"Manual fact verification recommended before publication")
+        logger.warning(f"{border}\n")
+
     # Token usage report
     token_summary = token_tracker.get_session_summary()
     logger.info(f"Total tokens used: {token_summary['session_summary']['total_tokens']}")
@@ -430,7 +463,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     token_tracker.save_token_report(base_output_path)
     logger.info(f"Token usage report: {token_report_path}")
 
-async def run_single_stage(topic: str, stage: str, content_type: str = "basic_articles", publish_to_wordpress: bool = True):
+async def run_single_stage(topic: str, stage: str, content_type: str = "basic_articles", publish_to_wordpress: bool = True, verbose: bool = False):
     """
     Запускает pipeline с конкретного этапа, используя существующие данные.
 
@@ -439,6 +472,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         stage: Этап для запуска ('editorial_review', 'publication')
         content_type: Тип контента
         publish_to_wordpress: Публиковать ли в WordPress
+        verbose: Включить детальное логирование
     """
     from src.llm_processing import editorial_review
     from src.config import LLM_MODELS
@@ -557,9 +591,9 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         logger.error(f"Stage '{stage}' not implemented yet")
         logger.info("Available stages: editorial_review, publication")
 
-async def main_flow(topic: str, model_overrides: Dict = None, publish_to_wordpress: bool = True, content_type: str = "basic_articles"):
+async def main_flow(topic: str, model_overrides: Dict = None, publish_to_wordpress: bool = True, content_type: str = "basic_articles", verbose: bool = False):
     """Async wrapper function for batch processor compatibility"""
-    return await basic_articles_pipeline(topic, publish_to_wordpress, content_type)
+    return await basic_articles_pipeline(topic, publish_to_wordpress, content_type, verbose)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Content Factory Pipeline')
@@ -570,8 +604,16 @@ if __name__ == "__main__":
                        help='Skip WordPress publication')
     parser.add_argument('--start-from-stage', choices=['editorial_review', 'publication'],
                        help='Start pipeline from specific stage (requires existing output folder)')
+    parser.add_argument('--verbose', action='store_true',
+                       help='Show detailed debug logs (default: show only key events)')
 
     args = parser.parse_args()
+
+    # Configure logging FIRST before any other operations
+    configure_logging(verbose=args.verbose)
+
+    # Re-import logger after configuration to get updated settings
+    from src.logger_config import logger
 
     # Validate content type
     try:
@@ -592,7 +634,7 @@ if __name__ == "__main__":
         logger.info(f"Content type: {args.content_type}")
 
         try:
-            asyncio.run(run_single_stage(args.topic, args.start_from_stage, args.content_type, publish_to_wordpress))
+            asyncio.run(run_single_stage(args.topic, args.start_from_stage, args.content_type, publish_to_wordpress, args.verbose))
             logger.info(f"✅ Stage '{args.start_from_stage}' completed successfully")
         except KeyboardInterrupt:
             logger.info("\\n🛑 Stage interrupted by user")
@@ -606,7 +648,7 @@ if __name__ == "__main__":
         logger.info(f"WordPress publication: {'enabled' if publish_to_wordpress else 'disabled'}")
 
         try:
-            asyncio.run(basic_articles_pipeline(args.topic, publish_to_wordpress, args.content_type))
+            asyncio.run(basic_articles_pipeline(args.topic, publish_to_wordpress, args.content_type, args.verbose))
             logger.info("✅ Pipeline completed successfully")
         except KeyboardInterrupt:
             logger.info("\\n🛑 Pipeline interrupted by user")

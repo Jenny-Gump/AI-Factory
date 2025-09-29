@@ -66,7 +66,7 @@ class FirecrawlClient:
             "removeBase64Images": True,
             "blockAds": True
         }
-        logger.info(f"Scraping URL: {url_to_scrape}")
+        logger.debug(f"Scraping URL: {url_to_scrape}")
         try:
             async with session.post(scrape_url, json=json_data) as response:
                 response.raise_for_status()

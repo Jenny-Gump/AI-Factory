@@ -73,7 +73,7 @@ class BatchProcessor:
     
     def __init__(self, topics_file: str, content_type: str = "basic_articles",
                  model_overrides: Dict = None, resume: bool = False,
-                 skip_publication: bool = False):
+                 skip_publication: bool = False, verbose: bool = False):
         
         # Валидация параметров
         if not validate_content_type(content_type):
@@ -87,6 +87,7 @@ class BatchProcessor:
         self.model_overrides = model_overrides or {}
         self.resume = resume
         self.skip_publication = skip_publication
+        self.verbose = verbose
         
         # Настройки
         self.config = get_content_type_config(content_type)
@@ -215,7 +216,8 @@ class BatchProcessor:
                     topic=topic,
                     model_overrides=self.model_overrides,
                     publish_to_wordpress=not self.skip_publication,
-                    content_type=self.content_type
+                    content_type=self.content_type,
+                    verbose=self.verbose
                 )
             )
             
@@ -527,17 +529,21 @@ class BatchProcessor:
 # Функция для использования из командной строки
 async def run_batch_processor(topics_file: str, content_type: str = "basic_articles",
                              model_overrides: Dict = None, resume: bool = False,
-                             skip_publication: bool = False) -> bool:
+                             skip_publication: bool = False, verbose: bool = False) -> bool:
     """
     Запускает batch processor с заданными параметрами
     Возвращает True если все темы обработаны успешно
     """
+    # Configure logging for batch processing
+    from src.logger_config import configure_logging
+    configure_logging(verbose=verbose)
     processor = BatchProcessor(
         topics_file=topics_file,
         content_type=content_type,
         model_overrides=model_overrides,
         resume=resume,
-        skip_publication=skip_publication
+        skip_publication=skip_publication,
+        verbose=verbose
     )
     
     return await processor.process_batch()
@@ -553,12 +559,17 @@ if __name__ == "__main__":
                        choices=list(CONTENT_TYPES.keys()), help="Content type")
     parser.add_argument("--resume", action="store_true", help="Resume previous batch")
     parser.add_argument("--skip-publication", action="store_true", help="Skip WordPress publication")
+    parser.add_argument("--verbose", action="store_true", help="Show detailed debug logs")
     parser.add_argument("--extract-model", help="Override extraction model")
-    parser.add_argument("--generate-model", help="Override generation model") 
+    parser.add_argument("--generate-model", help="Override generation model")
     parser.add_argument("--editorial-model", help="Override editorial model")
     
     args = parser.parse_args()
-    
+
+    # Configure logging FIRST before any operations
+    from src.logger_config import configure_logging
+    configure_logging(verbose=args.verbose)
+
     # Подготовка model_overrides
     model_overrides = {}
     if args.extract_model:
@@ -575,7 +586,8 @@ if __name__ == "__main__":
             content_type=args.content_type,
             model_overrides=model_overrides if model_overrides else None,
             resume=args.resume,
-            skip_publication=args.skip_publication
+            skip_publication=args.skip_publication,
+            verbose=args.verbose
         ))
         
         if success:

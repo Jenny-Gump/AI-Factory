@@ -136,19 +136,19 @@ def select_best_sources(scored_sources: List[Dict[str, Any]]) -> List[Dict[str, 
 
         # Debug specific source
         if "anthropic.com" in source.get("url", ""):
-            logger.info(f"ANTHROPIC.COM CALCULATION:")
-            logger.info(f"  URL: {source.get('url')}")
-            logger.info(f"  trust_score: {source.get('trust_score')}")
-            logger.info(f"  relevance_score: {source.get('relevance_score')} -> normalized: {source['normalized_relevance']:.3f}")
-            logger.info(f"  depth_score: {source.get('depth_score')} -> normalized: {source['normalized_depth']:.3f}")
-            logger.info(f"  final_score: {source['final_score']}")
+            logger.debug(f"ANTHROPIC.COM CALCULATION:")
+            logger.debug(f"  URL: {source.get('url')}")
+            logger.debug(f"  trust_score: {source.get('trust_score')}")
+            logger.debug(f"  relevance_score: {source.get('relevance_score')} -> normalized: {source['normalized_relevance']:.3f}")
+            logger.debug(f"  depth_score: {source.get('depth_score')} -> normalized: {source['normalized_depth']:.3f}")
+            logger.debug(f"  final_score: {source['final_score']}")
 
     sorted_sources = sorted(scored_sources, key=lambda x: x.get("final_score", 0), reverse=True)
 
     # Debug: Show ALL sources sorted by final_score
-    logger.info("ALL SOURCES SORTED BY FINAL_SCORE:")
+    logger.debug("ALL SOURCES SORTED BY FINAL_SCORE:")
     for i, source in enumerate(sorted_sources):
-        logger.info(f"   {i+1:2}. {source.get('final_score', 0):.6f} - {source.get('url', 'N/A')}")
+        logger.debug(f"   {i+1:2}. {source.get('final_score', 0):.6f} - {source.get('url', 'N/A')}")
 
     # Check if anthropic.com is present
     anthropic_present = any("anthropic.com" in s.get("url", "") for s in sorted_sources)
@@ -158,7 +158,7 @@ def select_best_sources(scored_sources: List[Dict[str, Any]]) -> List[Dict[str, 
 
     logger.info("Selected top 5 sources.")
     for i, source in enumerate(top_sources):
-        logger.info(f"  {i+1}. {source.get('url', 'N/A')} (Score: {source.get('final_score', 0):.2f})")
+        logger.debug(f"  {i+1}. {source.get('url', 'N/A')} (Score: {source.get('final_score', 0):.2f})")
 
     return top_sources
 
@@ -227,7 +227,7 @@ def clean_content(sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         source["cleaned_length"] = cleaned_length
         source["reduction_percent"] = round(reduction_percent, 1)
         
-        logger.info(f"Cleaned {source['url'][:50]}... - Reduced from {original_length:,} to {cleaned_length:,} chars ({reduction_percent:.1f}% reduction)")
+        logger.debug(f"Cleaned {source['url'][:50]}... - Reduced from {original_length:,} to {cleaned_length:,} chars ({reduction_percent:.1f}% reduction)")
         
     logger.info("Finished cleaning content.")
     return sources

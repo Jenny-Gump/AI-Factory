@@ -1386,9 +1386,9 @@ def group_sections_for_fact_check(sections: List[Dict], group_size: int = 3) -> 
 
 
 def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
-                       token_tracker: TokenTracker = None, model_name: str = None, content_type: str = "basic_articles") -> str:
+                       token_tracker: TokenTracker = None, model_name: str = None, content_type: str = "basic_articles") -> tuple:
     """
-    Performs fact-checking on groups of sections and returns combined content.
+    Performs fact-checking on groups of sections and returns combined content with status.
 
     Args:
         sections: List of generated sections with content
@@ -1399,17 +1399,28 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
         content_type: Content type for prompt selection
 
     Returns:
-        Combined fact-checked content as HTML string
+        Tuple: (combined_fact_checked_content, fact_check_status)
     """
     logger.info(f"Starting grouped fact-checking for {len(sections)} sections...")
 
     # Filter successful sections
     successful_sections = [s for s in sections if s.get("status") == "success" and s.get("content")]
 
+    # Initialize fact-check status tracking
+    fact_check_status = {
+        "success": False,
+        "total_groups": 0,
+        "failed_groups": 0,
+        "failed_sections": [],
+        "error_details": []
+    }
+
     if not successful_sections:
         logger.warning("No successful sections to fact-check")
+        fact_check_status["success"] = True  # Nothing to check = success
         # Return combined content of original sections
-        return "\n\n".join([s.get("content", "") for s in sections if s.get("content")])
+        combined_content = "\n\n".join([s.get("content", "") for s in sections if s.get("content")])
+        return combined_content, fact_check_status
 
     total_sections = len(successful_sections)
     logger.info(f"Total successful sections: {total_sections}")
@@ -1417,6 +1428,9 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
     # Group sections by 3
     section_groups = group_sections_for_fact_check(successful_sections, group_size=3)
     logger.info(f"Created {len(section_groups)} groups for fact-checking")
+
+    # Update status with total groups
+    fact_check_status["total_groups"] = len(section_groups)
 
     fact_checked_content_parts = []
 
@@ -1483,6 +1497,17 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
 
         except Exception as e:
             logger.error(f"❌ Fact-check failed for group {group_num}: {e}")
+
+            # Track failure in status
+            fact_check_status["failed_groups"] += 1
+            group_section_titles = [section.get("section_title", "Untitled Section") for section in group]
+            fact_check_status["failed_sections"].extend(group_section_titles)
+            fact_check_status["error_details"].append({
+                "group": group_num,
+                "sections": group_section_titles,
+                "error": str(e)
+            })
+
             # Keep original content for this group if fact-check fails
             group_original_content = ""
             for section in group:
@@ -1494,9 +1519,19 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
     # Combine all fact-checked content parts
     combined_fact_checked_content = "\n\n".join(fact_checked_content_parts)
 
-    logger.info(f"Fact-checking completed: {len(section_groups)} groups processed, combined content length: {len(combined_fact_checked_content)} chars")
+    # Finalize status
+    fact_check_status["success"] = (fact_check_status["failed_groups"] == 0)
 
-    return combined_fact_checked_content
+    # Log final status
+    if fact_check_status["success"]:
+        logger.info(f"✅ Fact-checking completed successfully: {len(section_groups)} groups processed")
+    else:
+        logger.warning(f"⚠️ Fact-checking partially failed: {fact_check_status['failed_groups']}/{fact_check_status['total_groups']} groups failed")
+        logger.warning(f"Failed sections: {', '.join(fact_check_status['failed_sections'])}")
+
+    logger.info(f"Combined content length: {len(combined_fact_checked_content)} chars")
+
+    return combined_fact_checked_content, fact_check_status
 
 
 def merge_sections(sections: List[Dict], topic: str, structure: List[Dict]) -> Dict[str, Any]:
