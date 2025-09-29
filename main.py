@@ -96,13 +96,27 @@ def save_html_with_proper_newlines(content: str, path: str, filename: str):
 
     logger.info(f"Saved HTML with proper newlines to {filepath}")
 
-async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True, content_type: str = "basic_articles", verbose: bool = False):
+async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True, content_type: str = "basic_articles",
+                                  verbose: bool = False, variables_manager=None):
     """
     Simplified pipeline for generating basic articles with FAQ and sources.
     Improved pipeline with configurable content type for different prompt sets.
     Этапы: 1-6 поиск/очистка → 7 структуры → 8 ультимативная → 9 генерация → 9.5 факт-чек → 10 редактура → 11 публикация
+
+    Args:
+        topic: Topic for content generation
+        publish_to_wordpress: Whether to publish to WordPress
+        content_type: Type of content to generate
+        verbose: Enable verbose logging
+        variables_manager: Optional VariablesManager instance with variables
     """
     logger.info(f"--- Starting Basic Articles Pipeline for topic: '{topic}' ---")
+
+    # Log active variables if any
+    if variables_manager:
+        active_vars = variables_manager.get_active_variables_summary()
+        if active_vars['active_count'] > 0:
+            logger.info(f"Active variables: {active_vars['variables']}")
 
     # Initialize token tracker
     token_tracker = TokenTracker(topic=topic)
@@ -197,7 +211,8 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
                     source_id=source_id,
                     token_tracker=token_tracker,
                     model_name=active_models.get("extract_prompts"),
-                    content_type=content_type
+                    content_type=content_type,
+                    variables_manager=variables_manager
                 )
                 results.append(result)
             except Exception as e:
@@ -251,7 +266,9 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     messages = _load_and_prepare_messages(
         content_type,
         "02_create_ultimate_structure",
-        {"topic": topic, "article_text": json.dumps(all_structures, indent=2)}
+        {"topic": topic, "article_text": json.dumps(all_structures, indent=2)},
+        variables_manager=variables_manager,
+        stage_name="create_structure"
     )
 
     # Try with primary model first, then fallback if JSON parsing fails
@@ -324,7 +341,8 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         base_path=paths["final_article"],
         token_tracker=token_tracker,
         model_name=active_models.get("generate_article"),
-        content_type=content_type
+        content_type=content_type,
+        variables_manager=variables_manager
     )
 
     save_artifact(wordpress_data, paths["final_article"], "wordpress_data.json")
@@ -350,7 +368,8 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         base_path=paths["fact_check"],
         token_tracker=token_tracker,
         model_name=active_models.get("fact_check"),
-        content_type=content_type
+        content_type=content_type,
+        variables_manager=variables_manager
     )
 
     # Save the combined fact-checked content
@@ -403,7 +422,8 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         base_path=paths["editorial_review"],
         token_tracker=token_tracker,
         model_name=active_models.get("editorial_review"),
-        content_type=content_type
+        content_type=content_type,
+        variables_manager=variables_manager
     )
 
     # Исправить переносы строк в контенте перед сохранением JSON
@@ -521,7 +541,8 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
             base_path=paths["editorial_review"],
             token_tracker=token_tracker,
             model_name=active_models.get("editorial_review"),
-            content_type=content_type
+            content_type=content_type,
+            variables_manager=variables_manager
         )
 
         # Исправить переносы строк в контенте перед сохранением JSON
@@ -607,6 +628,24 @@ if __name__ == "__main__":
     parser.add_argument('--verbose', action='store_true',
                        help='Show detailed debug logs (default: show only key events)')
 
+    # Variable arguments
+    parser.add_argument('--article-length', type=int,
+                       help='Target article length in characters')
+    parser.add_argument('--author-style',
+                       help='Author style for writing (e.g., "academic", "conversational", "technical")')
+    parser.add_argument('--theme-focus',
+                       help='Theme focus for the content (e.g., "business", "technology", "education")')
+    parser.add_argument('--custom-requirements',
+                       help='Additional requirements for content generation')
+    parser.add_argument('--target-audience',
+                       help='Target audience for the article (e.g., "beginners", "professionals", "students")')
+    parser.add_argument('--tone-of-voice',
+                       help='Tone of voice (e.g., "formal", "friendly", "authoritative")')
+    parser.add_argument('--include-examples', action='store_true',
+                       help='Include practical examples in each section')
+    parser.add_argument('--seo-keywords',
+                       help='SEO keywords to naturally include (comma-separated)')
+
     args = parser.parse_args()
 
     # Configure logging FIRST before any other operations
@@ -627,6 +666,15 @@ if __name__ == "__main__":
 
     import asyncio
 
+    # Create variables manager from CLI arguments
+    from src.variables_manager import VariablesManager
+    variables_manager = VariablesManager.create_from_args(vars(args))
+
+    if variables_manager.get_active_variables_summary()["active_count"] > 0:
+        logger.info(f"Variables manager initialized with {variables_manager.get_active_variables_summary()['active_count']} variable(s)")
+        for var_name, var_value in variables_manager.get_active_variables_summary()["variables"].items():
+            logger.info(f"  - {var_name}: {var_value}")
+
     # Проверить флаг --start-from-stage
     if args.start_from_stage:
         logger.info(f"Starting from stage: {args.start_from_stage}")
@@ -634,7 +682,7 @@ if __name__ == "__main__":
         logger.info(f"Content type: {args.content_type}")
 
         try:
-            asyncio.run(run_single_stage(args.topic, args.start_from_stage, args.content_type, publish_to_wordpress, args.verbose))
+            asyncio.run(run_single_stage(args.topic, args.start_from_stage, args.content_type, publish_to_wordpress, args.verbose, variables_manager))
             logger.info(f"✅ Stage '{args.start_from_stage}' completed successfully")
         except KeyboardInterrupt:
             logger.info("\\n🛑 Stage interrupted by user")
@@ -648,7 +696,7 @@ if __name__ == "__main__":
         logger.info(f"WordPress publication: {'enabled' if publish_to_wordpress else 'disabled'}")
 
         try:
-            asyncio.run(basic_articles_pipeline(args.topic, publish_to_wordpress, args.content_type, args.verbose))
+            asyncio.run(basic_articles_pipeline(args.topic, publish_to_wordpress, args.content_type, args.verbose, variables_manager))
             logger.info("✅ Pipeline completed successfully")
         except KeyboardInterrupt:
             logger.info("\\n🛑 Pipeline interrupted by user")

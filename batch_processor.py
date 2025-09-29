@@ -73,7 +73,7 @@ class BatchProcessor:
     
     def __init__(self, topics_file: str, content_type: str = "basic_articles",
                  model_overrides: Dict = None, resume: bool = False,
-                 skip_publication: bool = False, verbose: bool = False):
+                 skip_publication: bool = False, verbose: bool = False, variables_manager=None):
         
         # Валидация параметров
         if not validate_content_type(content_type):
@@ -88,6 +88,7 @@ class BatchProcessor:
         self.resume = resume
         self.skip_publication = skip_publication
         self.verbose = verbose
+        self.variables_manager = variables_manager
         
         # Настройки
         self.config = get_content_type_config(content_type)
@@ -217,7 +218,8 @@ class BatchProcessor:
                     model_overrides=self.model_overrides,
                     publish_to_wordpress=not self.skip_publication,
                     content_type=self.content_type,
-                    verbose=self.verbose
+                    verbose=self.verbose,
+                    variables_manager=self.variables_manager
                 )
             )
             
@@ -529,7 +531,7 @@ class BatchProcessor:
 # Функция для использования из командной строки
 async def run_batch_processor(topics_file: str, content_type: str = "basic_articles",
                              model_overrides: Dict = None, resume: bool = False,
-                             skip_publication: bool = False, verbose: bool = False) -> bool:
+                             skip_publication: bool = False, verbose: bool = False, variables_manager=None) -> bool:
     """
     Запускает batch processor с заданными параметрами
     Возвращает True если все темы обработаны успешно
@@ -543,7 +545,8 @@ async def run_batch_processor(topics_file: str, content_type: str = "basic_artic
         model_overrides=model_overrides,
         resume=resume,
         skip_publication=skip_publication,
-        verbose=verbose
+        verbose=verbose,
+        variables_manager=variables_manager
     )
     
     return await processor.process_batch()

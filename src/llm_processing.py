@@ -316,13 +316,26 @@ def _parse_json_from_response(response_content: str, stage_context: str = "unkno
         return []
 
 
-def _load_and_prepare_messages(content_type: str, prompt_name: str, replacements: Dict[str, str]) -> List[Dict]:
-    """Loads a prompt template, performs replacements, and splits into messages."""
+def _load_and_prepare_messages(content_type: str, prompt_name: str, replacements: Dict[str, str],
+                               variables_manager=None, stage_name: str = None) -> List[Dict]:
+    """
+    Loads a prompt template, performs replacements, adds variable addons, and splits into messages.
+
+    Args:
+        content_type: Type of content (basic_articles, guides, etc.)
+        prompt_name: Name of the prompt file (without .txt)
+        replacements: Dictionary of placeholder replacements
+        variables_manager: Optional VariablesManager instance for injecting variables
+        stage_name: Name of the current pipeline stage for variable lookup
+
+    Returns:
+        List of message dictionaries for LLM
+    """
     path = os.path.join("prompts", content_type, f"{prompt_name}.txt")
     try:
         with open(path, 'r', encoding='utf-8') as f:
             template = f.read()
-        
+
         for key, value in replacements.items():
             template = template.replace(f"{{{key}}}", str(value))
 
@@ -338,7 +351,7 @@ def _load_and_prepare_messages(content_type: str, prompt_name: str, replacements
 
         # Объединяем все строки кроме системной
         full_user_content = "\n".join(user_content_lines)
-        
+
         # Заменяем маркер "User:" на пустоту, но сохраняем весь контент
         if "User:" in full_user_content:
             # Разделяем по "User:" и объединяем все части
@@ -348,11 +361,22 @@ def _load_and_prepare_messages(content_type: str, prompt_name: str, replacements
         else:
             user_content = full_user_content
 
+        # ADD VARIABLE ADDONS if variables_manager is provided
+        if variables_manager and stage_name:
+            # Map function name to config stage name
+            config_stage = variables_manager.get_stage_mapping(stage_name)
+            addon = variables_manager.get_stage_addon(config_stage)
+
+            if addon:
+                # Add addon to user content
+                user_content = f"{user_content}\n{addon}"
+                logger.debug(f"Added variable addon to {stage_name} prompt ({len(addon)} chars)")
+
         messages = []
         if system_content:
             messages.append({"role": "system", "content": system_content})
         messages.append({"role": "user", "content": user_content})
-        
+
         return messages
 
     except FileNotFoundError:
@@ -661,7 +685,8 @@ def _make_llm_request_with_retry(stage_name: str, model_name: str, messages: lis
 
 def extract_prompts_from_article(article_text: str, topic: str, base_path: str = None,
                                  source_id: str = None, token_tracker: TokenTracker = None,
-                                 model_name: str = None, content_type: str = "basic_articles") -> List[Dict]:
+                                 model_name: str = None, content_type: str = "basic_articles",
+                                 variables_manager=None) -> List[Dict]:
     """Extracts structured prompt data from a single article text.
 
     Args:
@@ -671,13 +696,17 @@ def extract_prompts_from_article(article_text: str, topic: str, base_path: str =
         source_id: Identifier for the source
         token_tracker: Token usage tracker
         model_name: Override model name (uses config default if None)
+        content_type: Type of content (basic_articles, guides, etc.)
+        variables_manager: Optional VariablesManager instance
     """
     logger.info("Extracting prompts from one article...")
     try:
         messages = _load_and_prepare_messages(
             content_type,
             "01_extract",
-            {"topic": topic, "article_text": article_text}
+            {"topic": topic, "article_text": article_text},
+            variables_manager=variables_manager,
+            stage_name="extract_prompts"
         )
 
         # Use new retry system
@@ -824,7 +853,8 @@ async def _generate_single_section_async(section: Dict, idx: int, topic: str,
 
 
 def generate_article_by_sections(structure: List[Dict], topic: str, base_path: str = None,
-                                 token_tracker: TokenTracker = None, model_name: str = None, content_type: str = "basic_articles") -> Dict[str, Any]:
+                                 token_tracker: TokenTracker = None, model_name: str = None,
+                                 content_type: str = "basic_articles", variables_manager=None) -> Dict[str, Any]:
     """Generates WordPress article by processing sections SEQUENTIALLY without any async operations.
 
     Args:
@@ -833,6 +863,8 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
         base_path: Path to save LLM interactions
         token_tracker: Token usage tracker
         model_name: Override model name (uses config default if None)
+        content_type: Type of content (basic_articles, guides, etc.)
+        variables_manager: Optional VariablesManager instance
 
     Returns:
         Dict with raw_response containing merged sections and metadata
@@ -917,7 +949,9 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                         "section_title": section.get("section_title", ""),
                         "section_structure": json.dumps(section, indent=2, ensure_ascii=False),
                         "ready_sections": ready_sections
-                    }
+                    },
+                    variables_manager=variables_manager,
+                    stage_name="generate_article"
                 )
 
                 # Make SYNCHRONOUS request
@@ -1386,7 +1420,8 @@ def group_sections_for_fact_check(sections: List[Dict], group_size: int = 3) -> 
 
 
 def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
-                       token_tracker: TokenTracker = None, model_name: str = None, content_type: str = "basic_articles") -> tuple:
+                       token_tracker: TokenTracker = None, model_name: str = None,
+                       content_type: str = "basic_articles", variables_manager=None) -> tuple:
     """
     Performs fact-checking on groups of sections and returns combined content with status.
 
@@ -1458,7 +1493,9 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                     "topic": topic,
                     "section_title": f"Группа {group_num} ({', '.join(section_titles)})",
                     "section_content": combined_content.strip()
-                }
+                },
+                variables_manager=variables_manager,
+                stage_name="fact_check"
             )
 
             # Create group-specific path
@@ -1600,7 +1637,8 @@ def merge_sections(sections: List[Dict], topic: str, structure: List[Dict]) -> D
 
 
 def editorial_review(raw_response: str, topic: str, base_path: str = None,
-                    token_tracker: TokenTracker = None, model_name: str = None, content_type: str = "basic_articles") -> Dict[str, Any]:
+                    token_tracker: TokenTracker = None, model_name: str = None,
+                    content_type: str = "basic_articles", variables_manager=None) -> Dict[str, Any]:
     """
     Performs editorial review and cleanup of WordPress article data with advanced retry and fallback logic.
 
@@ -1610,6 +1648,8 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
         base_path: Path to save LLM interactions
         token_tracker: Token usage tracker
         model_name: Override model name (uses config default if None)
+        content_type: Type of content (basic_articles, guides, etc.)
+        variables_manager: Optional VariablesManager instance
     """
     logger.info("🔧 Starting editorial review with advanced retry logic...")
     
@@ -1626,7 +1666,9 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
             {
                 "raw_response": raw_response,
                 "topic": topic
-            }
+            },
+            variables_manager=variables_manager,
+            stage_name="editorial_review"
         )
     except Exception as e:
         logger.error(f"Failed to load editorial review prompt: {e}")
