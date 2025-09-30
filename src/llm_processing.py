@@ -402,8 +402,8 @@ def _load_and_prepare_messages(content_type: str, prompt_name: str, replacements
             addon = variables_manager.get_stage_addon(config_stage)
 
             if addon:
-                # Add addon to user content
-                user_content = f"{user_content}\n{addon}"
+                # Add addon at the beginning of user content for better LLM influence
+                user_content = f"{addon}\n\n{user_content}"
                 logger.debug(f"Added variable addon to {stage_name} prompt ({len(addon)} chars)")
 
         messages = []

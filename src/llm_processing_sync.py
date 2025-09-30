@@ -101,7 +101,9 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                         "topic": topic,
                         "section_title": section.get("section_title", ""),
                         "section_structure": json.dumps(section, indent=2, ensure_ascii=False)
-                    }
+                    },
+                    variables_manager=variables_manager,
+                    stage_name="generate_section"
                 )
 
                 # Make SYNCHRONOUS request
