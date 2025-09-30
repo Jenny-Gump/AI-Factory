@@ -102,11 +102,18 @@ def save_llm_interaction(base_path: str, stage_name: str, messages: List[Dict],
         with open(request_path, 'w', encoding='utf-8') as f:
             json.dump(request_data, f, indent=2, ensure_ascii=False)
         
+        # DEBUG: Log response size before saving
+        logger.info(f"🔍 SAVE_LLM_INTERACTION RESPONSE: {len(response)} chars")
+
         # Сохраняем ответ
         response_path = os.path.join(responses_dir, response_filename)
         with open(response_path, 'w', encoding='utf-8') as f:
             f.write(response)
-        
+
+        # DEBUG: Verify file size after writing
+        written_size = os.path.getsize(response_path)
+        logger.info(f"🔍 WRITTEN FILE SIZE: {written_size} bytes")
+
         logger.info(f"Saved LLM interaction: {request_path} + {response_path}")
         
     except Exception as e:
@@ -507,6 +514,9 @@ def _make_google_direct_request(model_name: str, messages: list, **kwargs):
 
     result = response.json()
 
+    # DEBUG: Log raw API response size
+    logger.info(f"🔍 RAW API RESPONSE: {len(response.text)} chars")
+
     if "candidates" not in result or not result["candidates"]:
         raise Exception("No candidates in Google API response")
 
@@ -515,7 +525,20 @@ def _make_google_direct_request(model_name: str, messages: list, **kwargs):
     if "content" not in candidate:
         raise Exception("No content in Google API response")
 
-    content = candidate["content"]["parts"][0]["text"]
+    # CRITICAL FIX: Gemini can return multiple parts, we need to combine them!
+    parts = candidate["content"]["parts"]
+    logger.info(f"🔍 Gemini returned {len(parts)} part(s) in response")
+
+    # Combine all text parts
+    content_parts = []
+    for idx, part in enumerate(parts):
+        if "text" in part:
+            part_text = part["text"]
+            content_parts.append(part_text)
+            logger.info(f"   Part {idx+1}: {len(part_text)} chars")
+
+    content = "".join(content_parts)
+    logger.info(f"📏 Total combined content: {len(content)} chars")
 
     # Create OpenAI-compatible response object
     response_obj = SimpleNamespace()
@@ -523,6 +546,9 @@ def _make_google_direct_request(model_name: str, messages: list, **kwargs):
     response_obj.choices[0].message = SimpleNamespace()
     response_obj.choices[0].message.content = content
     response_obj.choices[0].finish_reason = candidate.get("finishReason", "stop")
+
+    # DEBUG: Log final response object content size
+    logger.info(f"🔍 FINAL RESPONSE_OBJ CONTENT: {len(response_obj.choices[0].message.content)} chars")
 
     # Create usage info (estimated from content length)
     response_obj.usage = SimpleNamespace()
@@ -562,6 +588,9 @@ def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages
 
             # СОХРАНЕНИЕ СЫРОГО ОТВЕТА В ПАПКЕ ЭТАПА
             raw_response_content = response_obj.choices[0].message.content
+
+            # DEBUG: Log response content size in retry function
+            logger.info(f"🔍 RETRY FUNCTION RAW_RESPONSE: {len(raw_response_content)} chars")
 
             # Сохраняем сырой ответ в папку этапа если base_path передан
             if base_path:
@@ -1512,6 +1541,14 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
             )
 
             fact_checked_content = response_obj.choices[0].message.content
+
+            # DEBUG: Log content size immediately after extraction
+            logger.info(f"🔍 FACT_CHECK EXTRACTED CONTENT: {len(fact_checked_content)} chars")
+
+            # Debug logging to track content size
+            logger.info(f"📊 Group {group_num} - Response content size: {len(fact_checked_content)} chars")
+            logger.info(f"📊 Group {group_num} - First 100 chars: {fact_checked_content[:100]}...")
+            logger.info(f"📊 Group {group_num} - Last 100 chars: ...{fact_checked_content[-100:]}")
 
             # Save interaction
             if group_path:

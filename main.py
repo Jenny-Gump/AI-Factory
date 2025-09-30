@@ -489,7 +489,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
 
     Args:
         topic: Тема статьи (используется для поиска существующей папки output)
-        stage: Этап для запуска ('editorial_review', 'publication')
+        stage: Этап для запуска ('fact_check', 'editorial_review', 'publication')
         content_type: Тип контента
         publish_to_wordpress: Публиковать ли в WordPress
         verbose: Включить детальное логирование
@@ -515,11 +515,78 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
 
     # Создание путей к этапам
     paths = {
+        "final_article": os.path.join(base_output_path, "08_article_generation"),
         "fact_check": os.path.join(base_output_path, "09_fact_check"),
         "editorial_review": os.path.join(base_output_path, "10_editorial_review")
     }
 
-    if stage == "editorial_review":
+    # Initialize variables_manager for all stages
+    from src.variables_manager import VariablesManager
+    variables_manager = VariablesManager()
+
+    if stage == "fact_check":
+        logger.info("=== Starting Fact-Check Stage ===")
+
+        # Load wordpress_data.json from 08_final_article
+        wordpress_data_path = os.path.join(paths["final_article"], "wordpress_data.json")
+        if not os.path.exists(wordpress_data_path):
+            logger.error(f"Required file not found: {wordpress_data_path}")
+            logger.error("Run full pipeline first to generate article sections")
+            return
+
+        with open(wordpress_data_path, 'r', encoding='utf-8') as f:
+            wordpress_data = json.load(f)
+
+        generated_sections = wordpress_data.get("generated_sections", [])
+        if not generated_sections:
+            logger.error("No generated sections found in wordpress_data.json")
+            return
+
+        logger.info(f"Found {len(generated_sections)} sections for fact-checking")
+
+        # Run fact-checking
+        from src.llm_processing import fact_check_sections
+
+        fact_checked_content, fact_check_status = fact_check_sections(
+            sections=generated_sections,
+            topic=topic,
+            base_path=paths["fact_check"],
+            token_tracker=token_tracker,
+            model_name=active_models.get("fact_check"),
+            content_type=content_type,
+            variables_manager=variables_manager
+        )
+
+        # Save results
+        save_artifact({"content": fact_checked_content},
+                     paths["fact_check"],
+                     "fact_checked_content.json")
+        save_artifact(fact_check_status,
+                     paths["fact_check"],
+                     "fact_check_status.json")
+
+        # Create merged_fact_checked_content.json for editorial_review
+        merged_content = {
+            "title": wordpress_data.get("title", ""),
+            "content": fact_checked_content,
+            "excerpt": wordpress_data.get("excerpt", ""),
+            "seo_title": wordpress_data.get("seo_title", ""),
+            "meta_description": wordpress_data.get("meta_description", ""),
+            "sources": wordpress_data.get("sources", []),
+            "faq": wordpress_data.get("faq", [])
+        }
+
+        save_artifact(merged_content,
+                     paths["fact_check"],
+                     "merged_fact_checked_content.json")
+
+        logger.info(f"✅ Fact-check stage completed successfully")
+
+        # Show token statistics
+        token_summary = token_tracker.get_session_summary()
+        logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
+
+    elif stage == "editorial_review":
         logger.info("=== Starting Editorial Review Stage ===")
 
         # Загрузить данные после fact-check
@@ -610,7 +677,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
 
     else:
         logger.error(f"Stage '{stage}' not implemented yet")
-        logger.info("Available stages: editorial_review, publication")
+        logger.info("Available stages: fact_check, editorial_review, publication")
 
 async def main_flow(topic: str, model_overrides: Dict = None, publish_to_wordpress: bool = True, content_type: str = "basic_articles", verbose: bool = False, variables_manager=None):
     """Async wrapper function for batch processor compatibility"""
@@ -623,7 +690,7 @@ if __name__ == "__main__":
                        default='basic_articles', help='Type of content to generate')
     parser.add_argument('--skip-publication', action='store_true',
                        help='Skip WordPress publication')
-    parser.add_argument('--start-from-stage', choices=['editorial_review', 'publication'],
+    parser.add_argument('--start-from-stage', choices=['fact_check', 'editorial_review', 'publication'],
                        help='Start pipeline from specific stage (requires existing output folder)')
     parser.add_argument('--verbose', action='store_true',
                        help='Show detailed debug logs (default: show only key events)')
@@ -682,7 +749,7 @@ if __name__ == "__main__":
         logger.info(f"Content type: {args.content_type}")
 
         try:
-            asyncio.run(run_single_stage(args.topic, args.start_from_stage, args.content_type, publish_to_wordpress, args.verbose, variables_manager))
+            asyncio.run(run_single_stage(args.topic, args.start_from_stage, args.content_type, publish_to_wordpress, args.verbose))
             logger.info(f"✅ Stage '{args.start_from_stage}' completed successfully")
         except KeyboardInterrupt:
             logger.info("\\n🛑 Stage interrupted by user")
