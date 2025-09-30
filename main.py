@@ -612,9 +612,9 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         logger.error(f"Stage '{stage}' not implemented yet")
         logger.info("Available stages: editorial_review, publication")
 
-async def main_flow(topic: str, model_overrides: Dict = None, publish_to_wordpress: bool = True, content_type: str = "basic_articles", verbose: bool = False):
+async def main_flow(topic: str, model_overrides: Dict = None, publish_to_wordpress: bool = True, content_type: str = "basic_articles", verbose: bool = False, variables_manager=None):
     """Async wrapper function for batch processor compatibility"""
-    return await basic_articles_pipeline(topic, publish_to_wordpress, content_type, verbose)
+    return await basic_articles_pipeline(topic, publish_to_wordpress, content_type, verbose, variables_manager)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Content Factory Pipeline')

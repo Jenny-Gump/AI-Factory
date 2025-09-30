@@ -485,7 +485,7 @@ def _make_google_direct_request(model_name: str, messages: list, **kwargs):
             }
         ],
         "generationConfig": {
-            "maxOutputTokens": 30000,  # High limit for fact-checking
+            "maxOutputTokens": 65536,  # Maximum for Gemini 2.5 Flash (was 30000)
             "temperature": kwargs.get("temperature", 0.3),
             "topP": 0.8,
             "topK": 40
@@ -1520,7 +1520,8 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                     stage_name="fact_check",
                     messages=messages,
                     response=fact_checked_content,
-                    request_id=f"group_{group_num}_fact_check"
+                    request_id=f"group_{group_num}_fact_check",
+                    extra_params={"model": actual_model}
                 )
 
             fact_checked_content_parts.append(fact_checked_content)
