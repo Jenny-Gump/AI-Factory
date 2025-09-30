@@ -7,14 +7,14 @@
   ],
   "failed_topics": [],
   "current_topic": null,
-  "start_time": "2025-09-30T13:44:41.095060",
-  "last_update_time": "2025-09-30T14:05:43.451731",
+  "start_time": "2025-09-30T15:43:14.739535",
+  "last_update_time": "2025-09-30T16:12:47.922577",
   "topic_statuses": {
     "Generate Knowledge (GK) prompting technique guide, template, best practices": {
       "topic": "Generate Knowledge (GK) prompting technique guide, template, best practices",
       "status": "completed",
-      "start_time": "2025-09-30T13:44:41.095361",
-      "end_time": "2025-09-30T14:05:43.387986",
+      "start_time": "2025-09-30T15:43:14.739795",
+      "end_time": "2025-09-30T16:12:47.873029",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,

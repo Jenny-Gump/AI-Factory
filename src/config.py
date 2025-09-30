@@ -63,7 +63,7 @@ FALLBACK_MODELS = {
     "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "fact_check": "deepseek/deepseek-chat-v3.1:free",                   # Fallback to DeepSeek (no web search)
-    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
+    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",  # Fallback to Gemini (different provider)
 }
 
 # Retry configuration for LLM requests
@@ -118,7 +118,8 @@ LLM_PROVIDERS = {
         ],
         "extra_headers": {
             "HTTP-Referer": "https://github.com/your-repo/content-generator",
-            "X-Title": "AI Content Generator"
+            "X-Title": "AI Content Generator",
+            "X-Provider-Preference": "deepinfra"
         }
     }
 }

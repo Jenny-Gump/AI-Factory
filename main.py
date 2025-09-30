@@ -354,29 +354,81 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         return
 
     # --- Этап 9.5: Fact-checking секций ---
-    logger.info("Starting grouped fact-checking of generated sections...")
+
+    # Check fact-check mode from variables
+    fact_check_mode = "on"  # Default
+    if variables_manager:
+        fact_check_mode = variables_manager.active_variables.get("fact_check_mode", "on")
 
     generated_sections = wordpress_data.get("generated_sections", [])
     if not generated_sections:
-        logger.error("No generated sections found for fact-checking. Exiting.")
+        logger.error("No generated sections found for processing. Exiting.")
         return
 
-    # Get combined fact-checked content and status
-    fact_checked_content, fact_check_status = fact_check_sections(
-        sections=generated_sections,
-        topic=topic,
-        base_path=paths["fact_check"],
-        token_tracker=token_tracker,
-        model_name=active_models.get("fact_check"),
-        content_type=content_type,
-        variables_manager=variables_manager
-    )
+    # Initialize variables to avoid scope issues
+    fact_checked_content = ""
+    merged_content = {}
 
-    # Save the combined fact-checked content
-    save_artifact({"content": fact_checked_content}, paths["fact_check"], "fact_checked_content.json")
+    if fact_check_mode == "off":
+        logger.info("🚫 FACT-CHECKING DISABLED by user - skipping to editorial review")
 
-    # Save fact-check status for reference
-    save_artifact(fact_check_status, paths["fact_check"], "fact_check_status.json")
+        # Create combined HTML content from sections for editor
+        combined_html = ""
+        for section in generated_sections:
+            if section.get("content"):
+                combined_html += section["content"] + "\n\n"
+
+        # Set fact_checked_content for bypass mode
+        fact_checked_content = combined_html.strip()
+
+        # Prepare merged content structure for editorial review
+        merged_content = {
+            "title": f"Статья по теме: {topic}",
+            "content": fact_checked_content,
+            "excerpt": f"Автоматически сгенерированная статья на тему: {topic}",
+            "slug": topic.lower().replace(" ", "-")
+        }
+
+        # Create fact_check directory and save bypass artifacts for consistency
+        os.makedirs(paths["fact_check"], exist_ok=True)
+        save_artifact({"content": fact_checked_content}, paths["fact_check"], "fact_checked_content.json")
+        save_artifact(merged_content, paths["fact_check"], "merged_fact_checked_content.json")
+
+        # Create fake fact-check status for compatibility
+        fact_check_status = {
+            "success": True,
+            "total_groups": 0,
+            "failed_groups": 0,
+            "failed_sections": [],
+            "error_details": [],
+            "bypassed": True
+        }
+        save_artifact(fact_check_status, paths["fact_check"], "fact_check_status.json")
+
+        # Update wordpress_data for editorial review
+        wordpress_data["raw_response"] = json.dumps(merged_content, ensure_ascii=False)
+
+        logger.info(f"✅ Fact-checking bypassed: Combined {len(generated_sections)} sections ({len(fact_checked_content)} chars)")
+
+    else:
+        logger.info("Starting grouped fact-checking of generated sections...")
+
+        # Get combined fact-checked content and status
+        fact_checked_content, fact_check_status = fact_check_sections(
+            sections=generated_sections,
+            topic=topic,
+            base_path=paths["fact_check"],
+            token_tracker=token_tracker,
+            model_name=active_models.get("fact_check"),
+            content_type=content_type,
+            variables_manager=variables_manager
+        )
+
+        # Save the combined fact-checked content
+        save_artifact({"content": fact_checked_content}, paths["fact_check"], "fact_checked_content.json")
+
+        # Save fact-check status for reference
+        save_artifact(fact_check_status, paths["fact_check"], "fact_check_status.json")
 
     # Check for fact-check failures and show warning
     fact_check_failed = not fact_check_status.get("success", True)
@@ -399,19 +451,19 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     else:
         logger.info(f"✅ Fact-checking passed: All {fact_check_status.get('total_groups', 0)} groups verified")
 
-    # Create merged content structure for compatibility with editorial review
-    merged_content = {
-        "title": f"Статья по теме: {topic}",
-        "content": fact_checked_content,
-        "excerpt": f"Автоматически сгенерированная статья на тему: {topic}",
-        "slug": topic.lower().replace(" ", "-")
-    }
-    save_artifact(merged_content, paths["fact_check"], "merged_fact_checked_content.json")
+        # Create merged content structure for compatibility with editorial review (only for enabled fact-check)
+        merged_content = {
+            "title": f"Статья по теме: {topic}",
+            "content": fact_checked_content,
+            "excerpt": f"Автоматически сгенерированная статья на тему: {topic}",
+            "slug": topic.lower().replace(" ", "-")
+        }
+        save_artifact(merged_content, paths["fact_check"], "merged_fact_checked_content.json")
 
-    # Update wordpress_data with fact-checked content
-    wordpress_data["raw_response"] = json.dumps(merged_content, ensure_ascii=False)
+        # Update wordpress_data with fact-checked content
+        wordpress_data["raw_response"] = json.dumps(merged_content, ensure_ascii=False)
 
-    logger.info(f"Fact-checking completed: Combined content length: {len(fact_checked_content)} characters")
+        logger.info(f"Fact-checking completed: Combined content length: {len(fact_checked_content)} characters")
 
     # --- Этап 10: Editorial Review ---
     logger.info("Starting editorial review and cleanup...")
@@ -712,6 +764,10 @@ if __name__ == "__main__":
                        help='Include practical examples in each section')
     parser.add_argument('--seo-keywords',
                        help='SEO keywords to naturally include (comma-separated)')
+    parser.add_argument('--language',
+                       help='Language for content writing (e.g., "русский", "english", "español")')
+    parser.add_argument('--fact-check-mode', choices=['on', 'off'], default='on',
+                       help='Enable (on) or disable (off) fact-checking stage')
 
     args = parser.parse_args()
 

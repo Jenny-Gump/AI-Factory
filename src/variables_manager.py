@@ -171,7 +171,9 @@ class VariablesManager:
             'target_audience': args_dict.get('target_audience'),
             'tone_of_voice': args_dict.get('tone_of_voice'),
             'include_examples': args_dict.get('include_examples'),
-            'seo_keywords': args_dict.get('seo_keywords')
+            'seo_keywords': args_dict.get('seo_keywords'),
+            'language': args_dict.get('language'),
+            'fact_check_mode': args_dict.get('fact_check_mode', 'on')
         }
 
         # Filter out None values

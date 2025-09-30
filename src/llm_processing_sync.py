@@ -1,3 +1,30 @@
+def clean_llm_tokens(text: str) -> str:
+    """Remove LLM-specific tokens from generated content."""
+    if not text:
+        return text
+
+    # Токены для удаления (специфичные для разных LLM)
+    tokens_to_remove = [
+        '<｜begin▁of▁sentence｜>',
+        '<|begin_of_sentence|>',
+        '<｜end▁of▁sentence｜>',
+        '<|end_of_sentence|>',
+        '<|im_start|>',
+        '<|im_end|>',
+        '<|end|>',
+        '<<SYS>>',
+        '<</SYS>>',
+        '[INST]',
+        '[/INST]'
+    ]
+
+    cleaned = text
+    for token in tokens_to_remove:
+        cleaned = cleaned.replace(token, '')
+
+    # Убираем лишние пробелы и переводы строк
+    return cleaned.strip()
+
 def generate_article_by_sections(structure: List[Dict], topic: str, base_path: str = None,
                                  token_tracker: TokenTracker = None, model_name: str = None) -> Dict[str, Any]:
     """Generates WordPress article by processing sections SEQUENTIALLY.
@@ -88,6 +115,7 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                 )
 
                 section_content = response_obj.choices[0].message.content
+                section_content = clean_llm_tokens(section_content)  # Очищаем токены LLM
 
                 # Validate content
                 if not section_content or len(section_content.strip()) < 50:

@@ -19,6 +19,33 @@ load_dotenv()
 # Словарь для кэширования клиентов
 _clients_cache = {}
 
+def clean_llm_tokens(text: str) -> str:
+    """Remove LLM-specific tokens from generated content."""
+    if not text:
+        return text
+
+    # Токены для удаления (специфичные для разных LLM)
+    tokens_to_remove = [
+        '<｜begin▁of▁sentence｜>',
+        '<|begin_of_sentence|>',
+        '<｜end▁of▁sentence｜>',
+        '<|end_of_sentence|>',
+        '<|im_start|>',
+        '<|im_end|>',
+        '<|end|>',
+        '<<SYS>>',
+        '<</SYS>>',
+        '[INST]',
+        '[/INST]'
+    ]
+
+    cleaned = text
+    for token in tokens_to_remove:
+        cleaned = cleaned.replace(token, '')
+
+    # Убираем лишние пробелы и переводы строк
+    return cleaned.strip()
+
 def clear_llm_clients_cache():
     """Очищает кэш LLM клиентов для освобождения памяти."""
     global _clients_cache
@@ -748,7 +775,8 @@ def extract_prompts_from_article(article_text: str, topic: str, base_path: str =
             temperature=0.3,
         )
         content = response.choices[0].message.content
-        
+        content = clean_llm_tokens(content)  # Очищаем токены LLM
+
         # Сохраняем запрос и ответ для отладки
         if base_path:
             save_llm_interaction(
@@ -823,6 +851,7 @@ async def _generate_single_section_async(section: Dict, idx: int, topic: str,
             )
 
             section_content = response_obj.choices[0].message.content
+            section_content = clean_llm_tokens(section_content)  # Очищаем токены LLM
 
             # Validate content
             if not section_content or len(section_content.strip()) < 50:
@@ -994,6 +1023,7 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                 )
 
                 section_content = response_obj.choices[0].message.content
+                section_content = clean_llm_tokens(section_content)  # Очищаем токены LLM
 
                 # Validate content
                 if not section_content or len(section_content.strip()) < 50:
@@ -1541,6 +1571,7 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
             )
 
             fact_checked_content = response_obj.choices[0].message.content
+            fact_checked_content = clean_llm_tokens(fact_checked_content)  # Очищаем токены LLM
 
             # DEBUG: Log content size immediately after extraction
             logger.info(f"🔍 FACT_CHECK EXTRACTED CONTENT: {len(fact_checked_content)} chars")
@@ -1750,6 +1781,7 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
                 )
 
                 response = response_obj.choices[0].message.content
+                response = clean_llm_tokens(response)  # Очищаем токены LLM
 
                 # Save interaction with attempt info
                 if base_path:
