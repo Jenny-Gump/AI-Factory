@@ -456,24 +456,37 @@ curl -H "Authorization: Bearer $FIRECRAWL_API_KEY" \
 
 ### Использование флага --start-from-stage:
 ```bash
-# Запуск только этапа Editorial Review
-python3 main.py "Topic name" --start-from-stage editorial_review
-
 # Доступные этапы:
-# - editorial_review: этап редактуры и финальной обработки
-# - publication: публикация в WordPress (планируется)
+# - fact_check: факт-чекинг секций через Google Gemini с нативным веб-поиском
+# - editorial_review: редакторская правка и финальное форматирование
+# - publication: публикация готовой статьи в WordPress
 ```
 
-### Требования:
-- Должна существовать папка `output/_Topic_name_/` с результатами предыдущих этапов
-- Для `editorial_review` требуется файл `09_fact_check/merged_fact_checked_content.json`
+### Требования для каждого этапа:
+- **Общее**: Должна существовать папка `output/{topic}/` с результатами предыдущих этапов
+- **fact_check**: требуется `08_article_generation/wordpress_data.json` с `generated_sections`
+- **editorial_review**: требуется `09_fact_check/merged_fact_checked_content.json`
+- **publication**: требуется `10_editorial_review/wordpress_data_final.json`
 
-### Примеры:
+### Примеры использования:
 ```bash
-# Тестирование исправления newlines в code блоках
-python3 main.py "Mistral local model installation guide step by step for beginners" --start-from-stage editorial_review
+# Запуск только факт-чека (после генерации секций)
+python3 main.py "Test" --start-from-stage fact_check
+# Требуется: 08_article_generation/wordpress_data.json
+# Время: ~3-5 минут
 
-# Время выполнения: ~2-3 минуты вместо ~10-12 минут полного pipeline
+# Запуск только редактуры (после факт-чека)
+python3 main.py "Test" --start-from-stage editorial_review
+# Требуется: 09_fact_check/merged_fact_checked_content.json
+# Время: ~2-3 минуты
+
+# Запуск только публикации (после редактуры)
+python3 main.py "Test" --start-from-stage publication
+# Требуется: 10_editorial_review/wordpress_data_final.json
+# Время: ~10-20 секунд
+
+# Полный пример для тестирования исправлений в редакторе
+python3 main.py "Mistral local model installation guide" --start-from-stage editorial_review
 ```
 
 ### Польза:
