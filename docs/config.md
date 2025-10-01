@@ -16,7 +16,7 @@ FIRECRAWL_API_KEY=fc-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 # OpenRouter - для доступа к LLM моделям (DeepSeek FREE)
 OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxx
 
-# Google Gemini - для факт-чекинга с веб-поиском
+# Google Gemini - ОБЯЗАТЕЛЬНО для факт-чекинга с веб-поиском
 GEMINI_API_KEY=AIzaSyAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
