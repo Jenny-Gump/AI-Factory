@@ -3,18 +3,19 @@
   "topics_file": "topics_basic_articles.txt",
   "total_topics": 4,
   "completed_topics": [
-    "Generate Knowledge (GK) prompting technique guide, template, best practices"
+    "Generate Knowledge (GK) prompting technique guide, template, best practices",
+    "Prompt Chaining prompting technique guide, template, best practices"
   ],
   "failed_topics": [],
   "current_topic": null,
-  "start_time": "2025-09-30T15:43:14.739535",
-  "last_update_time": "2025-09-30T16:12:47.922577",
+  "start_time": "2025-10-01T11:30:26.882239",
+  "last_update_time": "2025-10-01T12:32:05.386906",
   "topic_statuses": {
     "Generate Knowledge (GK) prompting technique guide, template, best practices": {
       "topic": "Generate Knowledge (GK) prompting technique guide, template, best practices",
       "status": "completed",
-      "start_time": "2025-09-30T15:43:14.739795",
-      "end_time": "2025-09-30T16:12:47.873029",
+      "start_time": "2025-10-01T11:30:26.882694",
+      "end_time": "2025-10-01T11:58:25.149114",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
@@ -22,10 +23,10 @@
     },
     "Prompt Chaining prompting technique guide, template, best practices": {
       "topic": "Prompt Chaining prompting technique guide, template, best practices",
-      "status": "pending",
-      "start_time": null,
-      "end_time": null,
-      "attempts": 0,
+      "status": "completed",
+      "start_time": "2025-10-01T11:58:30.209843",
+      "end_time": "2025-10-01T12:32:05.321672",
+      "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
       "wordpress_url": null

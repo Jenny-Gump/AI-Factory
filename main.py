@@ -552,7 +552,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
 
     # Найти существующую папку output
     sanitized_topic = sanitize_filename(topic)
-    base_output_path = f"output/_{sanitized_topic}_"
+    base_output_path = f"output/{sanitized_topic}"
 
     if not os.path.exists(base_output_path):
         logger.error(f"Output folder not found: {base_output_path}")

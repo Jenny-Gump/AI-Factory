@@ -1,3 +1,5 @@
+from llm_processing import validate_content_quality
+
 def clean_llm_tokens(text: str) -> str:
     """Remove LLM-specific tokens from generated content."""
     if not text:
@@ -119,7 +121,16 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                 section_content = response_obj.choices[0].message.content
                 section_content = clean_llm_tokens(section_content)  # Очищаем токены LLM
 
-                # Validate content
+                # Validate content quality (spam/corruption check)
+                if not validate_content_quality(section_content, min_length=50):
+                    logger.warning(f"⚠️ Section {idx} attempt {attempt} failed content quality validation (spam/corruption)")
+                    if attempt < SECTION_MAX_RETRIES:
+                        time.sleep(3)  # Wait 3 seconds before retry
+                        continue
+                    else:
+                        raise Exception("All attempts failed content quality validation")
+
+                # Validate content length
                 if not section_content or len(section_content.strip()) < 50:
                     logger.warning(f"⚠️ Section {idx} attempt {attempt} returned insufficient content")
                     if attempt < SECTION_MAX_RETRIES:

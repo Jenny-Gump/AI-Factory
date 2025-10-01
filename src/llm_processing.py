@@ -46,6 +46,99 @@ def clean_llm_tokens(text: str) -> str:
     # Убираем лишние пробелы и переводы строк
     return cleaned.strip()
 
+
+def validate_content_quality(content: str, min_length: int = 50) -> bool:
+    """
+    Проверяет качество контента от LLM на предмет спама, брака и зацикливания.
+
+    Args:
+        content: Текст для проверки
+        min_length: Минимальная длина полезного контента в символах
+
+    Returns:
+        bool: True если контент качественный, False если спам/брак
+    """
+    if not content or not isinstance(content, str):
+        logger.warning("Content validation failed: empty or invalid content")
+        return False
+
+    content = content.strip()
+
+    # 1. Проверка минимальной длины
+    if len(content) < min_length:
+        logger.warning(f"Content validation failed: too short ({len(content)} < {min_length} chars)")
+        return False
+
+    # 2. Проверка на повторяющиеся паттерны (как "1.1.1.1.1...")
+    import re
+
+    # Поиск повторяющихся подстрок длиной 3+ символа
+    repeated_patterns = re.findall(r'(.{3,}?)\1{5,}', content)
+    if repeated_patterns:
+        # Если найдены паттерны, которые повторяются 5+ раз
+        total_repeated_length = sum(len(pattern) * 6 for pattern in repeated_patterns)  # 6+ повторений
+        repetition_ratio = total_repeated_length / len(content)
+
+        if repetition_ratio > 0.4:  # >40% контента состоит из повторений
+            logger.warning(f"Content validation failed: excessive repetition ({repetition_ratio:.1%})")
+            logger.warning(f"Repeated patterns: {repeated_patterns[:3]}")  # Показать первые 3 паттерна
+            return False
+
+    # 3. Проверка на зацикливание точек, цифр, символов
+    dot_matches = re.findall(r'\.{10,}', content)  # 10+ точек подряд
+    digit_repeats = re.findall(r'(\d)\1{20,}', content)  # 20+ одинаковых цифр
+
+    if dot_matches or digit_repeats:
+        logger.warning("Content validation failed: excessive dots or digit repetition")
+        return False
+
+    # 4. Проверка на преобладание одного символа (спам из дефисов, точек, etc)
+    if len(content) > 100:  # Только для достаточно длинного контента
+        char_counts = {}
+        for char in content:
+            if not char.isspace():  # Игнорируем пробелы и переводы строк
+                char_counts[char] = char_counts.get(char, 0) + 1
+
+        if char_counts:
+            most_frequent_char = max(char_counts, key=char_counts.get)
+            most_frequent_count = char_counts[most_frequent_char]
+            char_dominance = most_frequent_count / len(content.replace(' ', '').replace('\n', '').replace('\t', ''))
+
+            # Если один символ составляет >70% контента (исключая пробелы) - это спам
+            if char_dominance > 0.7:
+                logger.warning(f"Content validation failed: single character dominance ({most_frequent_char}: {char_dominance:.1%})")
+                return False
+
+    # 5. Проверка уникальности слов
+    words = re.findall(r'\b\w{3,}\b', content.lower())  # Слова длиной 3+ символа
+
+    # Если слов вообще нет в длинном контенте - подозрительно
+    if len(words) == 0 and len(content) > 100:
+        logger.warning("Content validation failed: no words found in long content (possible symbol spam)")
+        return False
+
+    if len(words) > 10:  # Достаточно слов для анализа
+        unique_words = set(words)
+        uniqueness_ratio = len(unique_words) / len(words)
+
+        if uniqueness_ratio < 0.15:  # <15% уникальных слов
+            logger.warning(f"Content validation failed: low word uniqueness ({uniqueness_ratio:.1%})")
+            return False
+
+    # 6. Проверка на преобладание специальных символов
+    special_chars = '.,!?;:()[]{}=-_*+#@$%^&|\\/<>`~"\'…—–'
+    printable_chars = sum(1 for c in content if c.isprintable() and c not in special_chars)
+    if len(content) > 100:  # Только для достаточно длинного контента
+        printable_ratio = printable_chars / len(content)
+        if printable_ratio < 0.2:  # <20% полезных символов
+            logger.warning(f"Content validation failed: too many special characters ({printable_ratio:.1%} printable)")
+            return False
+
+    # Если все проверки пройдены
+    logger.debug(f"Content validation passed: {len(content)} chars, quality checks OK")
+    return True
+
+
 def clear_llm_clients_cache():
     """Очищает кэш LLM клиентов для освобождения памяти."""
     global _clients_cache
@@ -544,6 +637,11 @@ def _make_google_direct_request(model_name: str, messages: list, **kwargs):
     # DEBUG: Log raw API response size
     logger.info(f"🔍 RAW API RESPONSE: {len(response.text)} chars")
 
+    # DEBUG: Log JSON structure (minimal)
+    import json
+    json_str = json.dumps(result, indent=2, ensure_ascii=False)
+    logger.info(f"🔍 FULL JSON SIZE: {len(json_str)} chars")
+
     if "candidates" not in result or not result["candidates"]:
         raise Exception("No candidates in Google API response")
 
@@ -556,16 +654,30 @@ def _make_google_direct_request(model_name: str, messages: list, **kwargs):
     parts = candidate["content"]["parts"]
     logger.info(f"🔍 Gemini returned {len(parts)} part(s) in response")
 
+    # DEBUG: Log full candidate structure to understand what we're getting
+    logger.info(f"🔍 CANDIDATE KEYS: {list(candidate.keys())}")
+    logger.info(f"🔍 CONTENT KEYS: {list(candidate['content'].keys())}")
+
     # Combine all text parts
     content_parts = []
     for idx, part in enumerate(parts):
+        logger.info(f"🔍 Part {idx+1} keys: {list(part.keys())}")
         if "text" in part:
             part_text = part["text"]
             content_parts.append(part_text)
             logger.info(f"   Part {idx+1}: {len(part_text)} chars")
+            logger.info(f"   Part {idx+1} preview: {part_text[:100]}...")
+        else:
+            logger.warning(f"⚠️ Part {idx+1} has no 'text' field: {part}")
 
     content = "".join(content_parts)
     logger.info(f"📏 Total combined content: {len(content)} chars")
+
+    # DEBUG: Check if there's content in other places
+    if len(content) < 1000:  # If content is suspiciously small
+        logger.warning(f"⚠️ SUSPICIOUSLY SMALL CONTENT! Dumping full candidate structure:")
+        import json
+        logger.warning(f"🔍 FULL CANDIDATE: {json.dumps(candidate, indent=2, ensure_ascii=False)[:2000]}...")
 
     # Create OpenAI-compatible response object
     response_obj = SimpleNamespace()
@@ -777,6 +889,10 @@ def extract_prompts_from_article(article_text: str, topic: str, base_path: str =
         content = response.choices[0].message.content
         content = clean_llm_tokens(content)  # Очищаем токены LLM
 
+        # Проверяем качество контента
+        if not validate_content_quality(content, min_length=100):
+            raise Exception("Content quality validation failed - likely spam or corrupted response")
+
         # Сохраняем запрос и ответ для отладки
         if base_path:
             save_llm_interaction(
@@ -853,7 +969,16 @@ async def _generate_single_section_async(section: Dict, idx: int, topic: str,
             section_content = response_obj.choices[0].message.content
             section_content = clean_llm_tokens(section_content)  # Очищаем токены LLM
 
-            # Validate content
+            # Validate content quality (spam/corruption check)
+            if not validate_content_quality(section_content, min_length=50):
+                logger.warning(f"⚠️ Section {idx} attempt {attempt} failed content quality validation (spam/corruption)")
+                if attempt < SECTION_MAX_RETRIES:
+                    time.sleep(3)  # Wait 3 seconds before retry
+                    continue
+                else:
+                    raise Exception("All attempts failed content quality validation")
+
+            # Validate content length
             if not section_content or len(section_content.strip()) < 50:
                 logger.warning(f"⚠️ Section {idx} attempt {attempt} returned insufficient content")
                 if attempt < SECTION_MAX_RETRIES:
@@ -1025,7 +1150,16 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                 section_content = response_obj.choices[0].message.content
                 section_content = clean_llm_tokens(section_content)  # Очищаем токены LLM
 
-                # Validate content
+                # Validate content quality (spam/corruption check)
+                if not validate_content_quality(section_content, min_length=50):
+                    logger.warning(f"⚠️ Section {idx} attempt {attempt} failed content quality validation (spam/corruption)")
+                    if attempt < SECTION_MAX_RETRIES:
+                        time.sleep(3)  # Wait 3 seconds before retry
+                        continue
+                    else:
+                        raise Exception("All attempts failed content quality validation")
+
+                # Validate content length
                 if not section_content or len(section_content.strip()) < 50:
                     logger.warning(f"⚠️ Section {idx} attempt {attempt} returned insufficient content")
                     if attempt < SECTION_MAX_RETRIES:
@@ -1573,6 +1707,10 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
             fact_checked_content = response_obj.choices[0].message.content
             fact_checked_content = clean_llm_tokens(fact_checked_content)  # Очищаем токены LLM
 
+            # Validate content quality (spam/corruption check)
+            if not validate_content_quality(fact_checked_content, min_length=100):
+                raise Exception(f"Fact-check content quality validation failed for group {group_index} - likely spam or corrupted response")
+
             # DEBUG: Log content size immediately after extraction
             logger.info(f"🔍 FACT_CHECK EXTRACTED CONTENT: {len(fact_checked_content)} chars")
 
@@ -1782,6 +1920,14 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
 
                 response = response_obj.choices[0].message.content
                 response = clean_llm_tokens(response)  # Очищаем токены LLM
+
+                # Validate content quality (spam/corruption check)
+                if not validate_content_quality(response, min_length=100):
+                    logger.warning(f"⚠️ Editorial review attempt {attempt_num} failed content quality validation (spam/corruption)")
+                    if attempt_num < max_retries:
+                        continue  # Try again with same model
+                    else:
+                        raise Exception("All attempts failed content quality validation")
 
                 # Save interaction with attempt info
                 if base_path:
