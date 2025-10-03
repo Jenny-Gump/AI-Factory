@@ -40,6 +40,7 @@ LLM_MODELS = {
     "create_structure": "deepseek/deepseek-chat-v3.1:free",       # FREE Model для создания структуры
     "generate_article": "deepseek/deepseek-chat-v3.1:free",       # FREE Model для генерации статей
     "fact_check": "gemini-2.5-flash",                             # Google Gemini с нативным веб-поиском
+    "link_placement": "deepseek/deepseek-chat-v3.1:free",         # FREE Model для расстановки ссылок
     "editorial_review": "deepseek/deepseek-chat-v3.1:free",       # FREE Model для редакторской правки
 }
 ```
@@ -51,6 +52,7 @@ FALLBACK_MODELS = {
     "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",
     "fact_check": "deepseek/deepseek-chat-v3.1:free",             # Fallback без веб-поиска
+    "link_placement": "google/gemini-2.5-flash-lite-preview-06-17", # Fallback для расстановки ссылок
     "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",
 }
 ```
@@ -465,8 +467,9 @@ curl -H "Authorization: Bearer $FIRECRAWL_API_KEY" \
 ### Требования для каждого этапа:
 - **Общее**: Должна существовать папка `output/{topic}/` с результатами предыдущих этапов
 - **fact_check**: требуется `08_article_generation/wordpress_data.json` с `generated_sections`
-- **editorial_review**: требуется `09_fact_check/merged_fact_checked_content.json`
-- **publication**: требуется `10_editorial_review/wordpress_data_final.json`
+- **link_placement**: требуется `09_fact_check/merged_fact_checked_content.json`
+- **editorial_review**: требуется `10_link_placement/content_with_links.json` (или `09_fact_check/merged_fact_checked_content.json` если link_placement пропущен)
+- **publication**: требуется `11_editorial_review/wordpress_data_final.json`
 
 ### Примеры использования:
 ```bash
@@ -475,15 +478,24 @@ python3 main.py "Test" --start-from-stage fact_check
 # Требуется: 08_article_generation/wordpress_data.json
 # Время: ~3-5 минут
 
-# Запуск только редактуры (после факт-чека)
-python3 main.py "Test" --start-from-stage editorial_review
+# Запуск только расстановки ссылок (после факт-чека)
+python3 main.py "Test" --start-from-stage link_placement
 # Требуется: 09_fact_check/merged_fact_checked_content.json
+# Время: ~2-3 минуты
+
+# Запуск только редактуры (после расстановки ссылок)
+python3 main.py "Test" --start-from-stage editorial_review
+# Требуется: 10_link_placement/content_with_links.json
 # Время: ~2-3 минуты
 
 # Запуск только публикации (после редактуры)
 python3 main.py "Test" --start-from-stage publication
-# Требуется: 10_editorial_review/wordpress_data_final.json
+# Требуется: 11_editorial_review/wordpress_data_final.json
 # Время: ~10-20 секунд
+
+# Отключить расстановку ссылок
+python3 main.py "Test" --link-placement-mode off
+# Link placement будет пропущен, контент пойдет напрямую из fact_check в editorial_review
 
 # Полный пример для тестирования исправлений в редакторе
 python3 main.py "Mistral local model installation guide" --start-from-stage editorial_review

@@ -471,7 +471,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.info(f"Fact-checking completed: Combined content length: {len(fact_checked_content)} characters")
 
     # --- Этап 10: Link Placement ---
-    link_placement_mode = variables_manager.get("link_placement_mode", "on") if variables_manager else "on"
+    link_placement_mode = variables_manager.active_variables.get("link_placement_mode", "on") if variables_manager else "on"
 
     if link_placement_mode == "off":
         logger.info("⏭️ Link placement bypassed (link_placement_mode=off)")
