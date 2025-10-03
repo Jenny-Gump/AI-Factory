@@ -17,6 +17,7 @@ from src.llm_processing import (
     extract_prompts_from_article,
     generate_article_by_sections,  # NEW: for section-by-section generation
     fact_check_sections,  # NEW: for fact-checking individual sections
+    place_links_in_sections,  # NEW: for placing relevant links in content
     editorial_review,
     _load_and_prepare_messages,
     _make_llm_request_with_retry,
@@ -140,7 +141,8 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         "ultimate_structure": os.path.join(base_output_path, "07_ultimate_structure"),
         "final_article": os.path.join(base_output_path, "08_article_generation"),
         "fact_check": os.path.join(base_output_path, "09_fact_check"),
-        "editorial_review": os.path.join(base_output_path, "10_editorial_review"),
+        "link_placement": os.path.join(base_output_path, "10_link_placement"),
+        "editorial_review": os.path.join(base_output_path, "11_editorial_review"),
     }
     for path in paths.values():
         os.makedirs(path, exist_ok=True)
@@ -468,7 +470,47 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
 
         logger.info(f"Fact-checking completed: Combined content length: {len(fact_checked_content)} characters")
 
-    # --- Этап 10: Editorial Review ---
+    # --- Этап 10: Link Placement ---
+    link_placement_mode = variables_manager.get("link_placement_mode", "on") if variables_manager else "on"
+
+    if link_placement_mode == "off":
+        logger.info("⏭️ Link placement bypassed (link_placement_mode=off)")
+        content_with_links = fact_checked_content
+        # Create empty artifacts for compatibility
+        os.makedirs(paths["link_placement"], exist_ok=True)
+        save_artifact({"skipped": True, "reason": "link_placement_mode=off"},
+                     paths["link_placement"], "link_placement_status.json")
+    else:
+        logger.info("🔗 Starting link placement in sections...")
+
+        content_with_links, link_placement_status = place_links_in_sections(
+            sections=generated_sections,
+            topic=topic,
+            base_path=paths["link_placement"],
+            token_tracker=token_tracker,
+            model_name=active_models.get("link_placement"),
+            content_type=content_type,
+            variables_manager=variables_manager
+        )
+
+        # Save link placement status
+        save_artifact(link_placement_status, paths["link_placement"], "link_placement_status.json")
+
+        # Save content with links
+        merged_content_with_links = {
+            "title": wordpress_data.get("title", f"Статья по теме: {topic}"),
+            "content": content_with_links,
+            "excerpt": wordpress_data.get("excerpt", f"Автоматически сгенерированная статья на тему: {topic}"),
+            "slug": wordpress_data.get("slug", topic.lower().replace(" ", "-"))
+        }
+        save_artifact(merged_content_with_links, paths["link_placement"], "content_with_links.json")
+
+        # Update wordpress_data with content that has links
+        wordpress_data["raw_response"] = json.dumps(merged_content_with_links, ensure_ascii=False)
+
+        logger.info(f"✅ Link placement completed: {len(content_with_links)} chars")
+
+    # --- Этап 11: Editorial Review ---
     logger.info("Starting editorial review and cleanup...")
     raw_response = wordpress_data.get("raw_response", "")
     wordpress_data_final = editorial_review(
@@ -495,7 +537,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.warning("Editorial review returned invalid structure, using original data")
         wordpress_data_final = wordpress_data
 
-    # --- Этап 11 (опциональный): WordPress Publication ---
+    # --- Этап 12 (опциональный): WordPress Publication ---
     if publish_to_wordpress:
         logger.info("Starting WordPress publication...")
         try:
@@ -572,7 +614,8 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
     paths = {
         "final_article": os.path.join(base_output_path, "08_article_generation"),
         "fact_check": os.path.join(base_output_path, "09_fact_check"),
-        "editorial_review": os.path.join(base_output_path, "10_editorial_review")
+        "link_placement": os.path.join(base_output_path, "10_link_placement"),
+        "editorial_review": os.path.join(base_output_path, "11_editorial_review")
     }
 
     # Initialize variables_manager for all stages
@@ -641,11 +684,84 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         token_summary = token_tracker.get_session_summary()
         logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
 
+    elif stage == "link_placement":
+        logger.info("=== Starting Link Placement Stage ===")
+
+        # Load data after fact-check
+        fact_check_path = os.path.join(paths["fact_check"], "merged_fact_checked_content.json")
+        if not os.path.exists(fact_check_path):
+            logger.error(f"Required file not found: {fact_check_path}")
+            logger.error("Run fact_check stage first to create the necessary data files")
+            return
+
+        with open(fact_check_path, 'r', encoding='utf-8') as f:
+            merged_content = json.load(f)
+
+        # Load generated_sections from 08_article_generation
+        wordpress_data_path = os.path.join(paths["final_article"], "wordpress_data.json")
+        if not os.path.exists(wordpress_data_path):
+            logger.error(f"Required file not found: {wordpress_data_path}")
+            return
+
+        with open(wordpress_data_path, 'r', encoding='utf-8') as f:
+            wordpress_data = json.load(f)
+
+        generated_sections = wordpress_data.get("generated_sections", [])
+        if not generated_sections:
+            logger.error("No generated sections found in wordpress_data.json")
+            return
+
+        logger.info(f"Found {len(generated_sections)} sections for link placement")
+
+        # Run link placement
+        content_with_links, link_placement_status = place_links_in_sections(
+            sections=generated_sections,
+            topic=topic,
+            base_path=paths["link_placement"],
+            token_tracker=token_tracker,
+            model_name=active_models.get("link_placement"),
+            content_type=content_type,
+            variables_manager=variables_manager
+        )
+
+        # Save results
+        save_artifact({"content": content_with_links},
+                     paths["link_placement"],
+                     "content_with_links.json")
+        save_artifact(link_placement_status,
+                     paths["link_placement"],
+                     "link_placement_status.json")
+
+        # Create content for editorial_review
+        merged_content_with_links = {
+            "title": merged_content.get("title", ""),
+            "content": content_with_links,
+            "excerpt": merged_content.get("excerpt", ""),
+            "seo_title": merged_content.get("seo_title", ""),
+            "meta_description": merged_content.get("meta_description", ""),
+            "sources": merged_content.get("sources", []),
+            "faq": merged_content.get("faq", [])
+        }
+
+        # Save for editorial_review to use
+        save_artifact(merged_content_with_links,
+                     paths["link_placement"],
+                     "merged_content_with_links.json")
+
+        logger.info(f"✅ Link placement stage completed successfully")
+
+        # Show token statistics
+        token_summary = token_tracker.get_session_summary()
+        logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
+
     elif stage == "editorial_review":
         logger.info("=== Starting Editorial Review Stage ===")
 
-        # Загрузить данные после fact-check
-        merged_content_path = os.path.join(paths["fact_check"], "merged_fact_checked_content.json")
+        # Try to load data after link_placement first, fallback to fact_check
+        merged_content_path = os.path.join(paths["link_placement"], "merged_content_with_links.json")
+        if not os.path.exists(merged_content_path):
+            # Fallback to fact_check if link_placement was skipped
+            merged_content_path = os.path.join(paths["fact_check"], "merged_fact_checked_content.json")
         if not os.path.exists(merged_content_path):
             logger.error(f"Required file not found: {merged_content_path}")
             return
@@ -732,7 +848,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
 
     else:
         logger.error(f"Stage '{stage}' not implemented yet")
-        logger.info("Available stages: fact_check, editorial_review, publication")
+        logger.info("Available stages: fact_check, link_placement, editorial_review, publication")
 
 async def main_flow(topic: str, model_overrides: Dict = None, publish_to_wordpress: bool = True, content_type: str = "basic_articles", verbose: bool = False, variables_manager=None):
     """Async wrapper function for batch processor compatibility"""
@@ -745,7 +861,7 @@ if __name__ == "__main__":
                        default='basic_articles', help='Type of content to generate')
     parser.add_argument('--skip-publication', action='store_true',
                        help='Skip WordPress publication')
-    parser.add_argument('--start-from-stage', choices=['fact_check', 'editorial_review', 'publication'],
+    parser.add_argument('--start-from-stage', choices=['fact_check', 'link_placement', 'editorial_review', 'publication'],
                        help='Start pipeline from specific stage (requires existing output folder)')
     parser.add_argument('--verbose', action='store_true',
                        help='Show detailed debug logs (default: show only key events)')
@@ -771,6 +887,8 @@ if __name__ == "__main__":
                        help='Language for content writing (e.g., "русский", "english", "español")')
     parser.add_argument('--fact-check-mode', choices=['on', 'off'], default='on',
                        help='Enable (on) or disable (off) fact-checking stage')
+    parser.add_argument('--link-placement-mode', choices=['on', 'off'], default='on',
+                       help='Enable (on) or disable (off) link placement stage')
 
     args = parser.parse_args()
 

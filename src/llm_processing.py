@@ -2067,3 +2067,166 @@ def _create_error_response(topic: str, error_message: str, error_type: str) -> D
         "image_caption": "Ошибка",
         "focus_keyword": "ошибка"
     }
+
+
+def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = None,
+                           token_tracker: TokenTracker = None, model_name: str = None,
+                           content_type: str = "basic_articles", variables_manager=None) -> tuple:
+    """
+    Places relevant links in sections after fact-checking.
+    Groups sections by 3 for batch processing.
+
+    Args:
+        sections: List of fact-checked sections with content
+        topic: Article topic
+        base_path: Path to save link-placement interactions
+        token_tracker: Token usage tracker
+        model_name: Override model name (uses config default if None)
+        content_type: Content type for prompt selection
+        variables_manager: Optional VariablesManager instance
+
+    Returns:
+        Tuple: (combined_content_with_links, link_placement_status)
+    """
+    logger.info(f"Starting link placement for {len(sections)} sections...")
+
+    # Filter successful sections
+    successful_sections = [s for s in sections if s.get("status") == "success" and s.get("content")]
+
+    # Initialize link placement status tracking
+    link_placement_status = {
+        "success": False,
+        "total_groups": 0,
+        "failed_groups": 0,
+        "failed_sections": [],
+        "error_details": []
+    }
+
+    if not successful_sections:
+        logger.warning("No successful sections for link placement")
+        link_placement_status["success"] = True  # Nothing to process = success
+        # Return combined content of original sections
+        combined_content = "\n\n".join([s.get("content", "") for s in sections if s.get("content")])
+        return combined_content, link_placement_status
+
+    total_sections = len(successful_sections)
+    logger.info(f"Total successful sections: {total_sections}")
+
+    # Group sections by 3
+    section_groups = group_sections_for_fact_check(successful_sections, group_size=3)
+    logger.info(f"Created {len(section_groups)} groups for link placement")
+
+    # Update status with total groups
+    link_placement_status["total_groups"] = len(section_groups)
+
+    content_with_links_parts = []
+
+    # Process each group
+    for group_idx, group in enumerate(section_groups):
+        group_num = group_idx + 1
+        logger.info(f"🔗 Placing links in group {group_num}/{len(section_groups)} with {len(group)} sections")
+
+        try:
+            # Combine content from all sections in the group
+            combined_content = ""
+            section_titles = []
+
+            for section in group:
+                section_title = section.get("section_title", "Untitled Section")
+                section_content = section.get("content", "")
+                section_titles.append(section_title)
+                combined_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+
+            # Prepare messages for link placement in the group
+            messages = _load_and_prepare_messages(
+                content_type,
+                "10_link_placement",
+                {
+                    "topic": topic,
+                    "section_title": f"Группа {group_num} ({', '.join(section_titles)})",
+                    "section_content": combined_content.strip()
+                },
+                variables_manager=variables_manager,
+                stage_name="link_placement"
+            )
+
+            # Create group-specific path
+            group_path = os.path.join(base_path, f"group_{group_num}") if base_path else None
+
+            # Make link placement request
+            response_obj, actual_model = _make_llm_request_with_retry(
+                stage_name="link_placement",
+                model_name=model_name or LLM_MODELS.get("link_placement"),
+                messages=messages,
+                token_tracker=token_tracker,
+                base_path=group_path,
+                temperature=0.3  # Slightly higher for creative link placement
+            )
+
+            content_with_links = response_obj.choices[0].message.content
+            content_with_links = clean_llm_tokens(content_with_links)  # Clean LLM tokens
+
+            # Validate content quality
+            if not validate_content_quality(content_with_links, min_length=100):
+                raise Exception(f"Link placement content quality validation failed for group {group_num}")
+
+            # Debug logging
+            logger.info(f"📊 Group {group_num} - Response content size: {len(content_with_links)} chars")
+
+            # Save interaction
+            if group_path:
+                save_llm_interaction(
+                    base_path=group_path,
+                    stage_name="link_placement",
+                    messages=messages,
+                    response=content_with_links,
+                    request_id=f"group_{group_num}_link_placement",
+                    extra_params={"model": actual_model}
+                )
+
+            content_with_links_parts.append(content_with_links)
+            logger.info(f"✅ Group {group_num} link placement completed successfully")
+
+            # Add delay between group requests to avoid rate limits
+            if group_idx < len(section_groups) - 1:
+                delay = 3  # 3 seconds between group requests
+                logger.info(f"⏳ Waiting {delay}s before next group...")
+                time.sleep(delay)
+
+        except Exception as e:
+            logger.error(f"❌ Link placement failed for group {group_num}: {e}")
+
+            # Track failure in status
+            link_placement_status["failed_groups"] += 1
+            group_section_titles = [section.get("section_title", "Untitled Section") for section in group]
+            link_placement_status["failed_sections"].extend(group_section_titles)
+            link_placement_status["error_details"].append({
+                "group": group_num,
+                "sections": group_section_titles,
+                "error": str(e)
+            })
+
+            # Keep original content for this group if link placement fails
+            group_original_content = ""
+            for section in group:
+                section_title = section.get("section_title", "Untitled Section")
+                section_content = section.get("content", "")
+                group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+            content_with_links_parts.append(group_original_content.strip())
+
+    # Combine all content parts with links
+    combined_content_with_links = "\n\n".join(content_with_links_parts)
+
+    # Finalize status
+    link_placement_status["success"] = (link_placement_status["failed_groups"] == 0)
+
+    # Log final status
+    if link_placement_status["success"]:
+        logger.info(f"✅ Link placement completed successfully: {len(section_groups)} groups processed")
+    else:
+        logger.warning(f"⚠️ Link placement partially failed: {link_placement_status['failed_groups']}/{link_placement_status['total_groups']} groups failed")
+        logger.warning(f"Failed sections: {', '.join(link_placement_status['failed_sections'])}")
+
+    logger.info(f"Combined content length: {len(combined_content_with_links)} chars")
+
+    return combined_content_with_links, link_placement_status

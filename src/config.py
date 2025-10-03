@@ -54,6 +54,7 @@ LLM_MODELS = {
     "create_structure": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for creating ultimate structure (basic_articles)
     "generate_article": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for WordPress article generation
     "fact_check": "gemini-2.5-flash-preview-09-2025",                   # Google Gemini 2.5 Flash (Sept 2025) with native web search for fact-checking
+    "link_placement": "deepseek/deepseek-chat-v3.1:free",               # FREE Model for placing relevant links in content
     "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for editorial formatting and structure
 }
 
@@ -63,6 +64,7 @@ FALLBACK_MODELS = {
     "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "fact_check": "deepseek/deepseek-chat-v3.1:free",                   # Fallback to DeepSeek (no web search)
+    "link_placement": "google/gemini-2.5-flash-lite-preview-06-17",    # Fallback to Gemini 2.5
     "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",  # Fallback to Gemini (different provider)
 }
 

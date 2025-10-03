@@ -69,6 +69,13 @@
       "description": "Включить/отключить факт-чекинг (on/off)",
       "stages": [],
       "prompt_addon": ""
+    },
+    "link_placement_mode": {
+      "type": "string",
+      "default": "on",
+      "description": "Включить/отключить расстановку ссылок (on/off)",
+      "stages": [],
+      "prompt_addon": ""
     }
   }
 }
