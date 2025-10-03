@@ -53,7 +53,7 @@ LLM_MODELS = {
     "extract_prompts": "deepseek/deepseek-chat-v3.1:free",              # FREE Model for prompt extraction from articles
     "create_structure": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for creating ultimate structure (basic_articles)
     "generate_article": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for WordPress article generation
-    "fact_check": "gemini-2.5-flash",                                   # Google Gemini with native web search for fact-checking
+    "fact_check": "gemini-2.5-flash-preview-09-2025",                   # Google Gemini 2.5 Flash (Sept 2025) with native web search for fact-checking
     "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for editorial formatting and structure
 }
 
@@ -95,6 +95,7 @@ LLM_PROVIDERS = {
         "base_url": "https://generativelanguage.googleapis.com/v1beta",
         "api_key_env": "GEMINI_API_KEY",
         "models": [
+            "gemini-2.5-flash-preview-09-2025",
             "gemini-2.5-flash",
             "gemini-2.5-pro",
             "gemini-2.0-flash"

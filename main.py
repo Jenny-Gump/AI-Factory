@@ -46,8 +46,9 @@ def save_artifact(data, path, filename):
 
 def fix_content_newlines(content: str) -> str:
     """
-    Исправляет экранированные переносы строк в code блоках.
-    Преобразует литеральные \\n в настоящие переносы ТОЛЬКО внутри <pre><code> тегов.
+    Исправляет переносы строк в code блоках для WordPress.
+    WordPress wpautop ломает <pre> блоки с реальными newlines,
+    поэтому заменяем newlines на <br> теги.
     """
     if not content:
         return content
@@ -60,12 +61,14 @@ def fix_content_newlines(content: str) -> str:
         code_closing = match.group(4)  # </code>
         pre_closing = match.group(5)  # </pre>
 
-        # Заменяем литеральные \n на настоящие переносы строк
-        fixed_content = code_content.replace('\\n', '\n')
+        # Заменяем реальные newlines на <br> для WordPress
+        # WordPress wpautop ломает pre-блоки с реальными newlines
+        fixed_content = code_content.replace('\n', '<br>')
 
         # Логирование для отладки
-        if '\\n' in code_content:
-            logger.debug(f"Fixed code block: replaced {code_content.count('\\n')} \\n occurrences")
+        newline_count = code_content.count('\n')
+        if newline_count > 0:
+            logger.debug(f"Fixed code block: replaced {newline_count} newlines with <br>")
 
         return f"{pre_tag}{code_opening}{fixed_content}{code_closing}{pre_closing}"
 

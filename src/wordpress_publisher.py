@@ -221,13 +221,23 @@ class WordPressPublisher:
         """Create a post in WordPress via standard REST API"""
         try:
             url = f"{self.config['wordpress_api_url']}/posts"
-            
+
             # Prepare authentication
             auth = HTTPBasicAuth(
-                self.config['wordpress_username'], 
+                self.config['wordpress_username'],
                 self.config['wordpress_app_password']
             )
-            
+
+            # DEBUG: Log what we're sending
+            content = post_data.get('content', '')
+            idx = content.find('Модель:')
+            if idx != -1:
+                sample = content[max(0, idx-100):min(len(content), idx+200)]
+                logger.info(f"DEBUG: Sending to WP - sample around Модель:")
+                logger.info(f"  <br> tags: {sample.count('<br>')}")
+                logger.info(f"  Real newlines: {sample.count(chr(10))}")
+                logger.info(f"  Literal nn: {'nn' in sample}")
+
             # Make the request
             response = requests.post(
                 url,
@@ -252,9 +262,26 @@ class WordPressPublisher:
     def _create_wordpress_post_via_custom_endpoint(self, post_data: Dict[str, Any]) -> Optional[int]:
         """Create post via Custom Post Meta Endpoint plugin"""
         try:
+            logger.info("=== CUSTOM ENDPOINT DEBUG START ===")
+
             # Get meta data
             meta = post_data.get('meta', {})
-            
+
+            # DEBUG: Log what we're sending
+            content = post_data.get('content', '')
+            logger.info(f"Content length: {len(content)}")
+
+            idx = content.find('Модель:')
+            logger.info(f"Found Модель: at position {idx}")
+
+            if idx != -1:
+                sample = content[max(0, idx-100):min(len(content), idx+200)]
+                logger.info(f"DEBUG: Sample around Модель:")
+                logger.info(f"  <br> tags: {sample.count('<br>')}")
+                logger.info(f"  Real newlines: {sample.count(chr(10))}")
+                logger.info(f"  Literal nn: {'nn' in sample}")
+                print(f"PRINT DEBUG: <br>={sample.count('<br>')}, newlines={sample.count(chr(10))}, nn={'nn' in sample}")
+
             # Transform data for custom endpoint
             custom_data = {
                 'title': post_data['title'],
