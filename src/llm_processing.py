@@ -463,6 +463,13 @@ def _load_and_prepare_messages(content_type: str, prompt_name: str, replacements
         with open(path, 'r', encoding='utf-8') as f:
             template = f.read()
 
+        # ADD VARIABLES TO REPLACEMENTS
+        if variables_manager:
+            variables = variables_manager.get_variables_for_replacement()
+            # Merge with existing replacements, existing take priority
+            replacements = {**variables, **replacements}
+            logger.debug(f"Added {len(variables)} variable(s) to replacements")
+
         for key, value in replacements.items():
             template = template.replace(f"{{{key}}}", str(value))
 
@@ -487,17 +494,6 @@ def _load_and_prepare_messages(content_type: str, prompt_name: str, replacements
             user_content = user_content.strip()
         else:
             user_content = full_user_content
-
-        # ADD VARIABLE ADDONS if variables_manager is provided
-        if variables_manager and stage_name:
-            # Map function name to config stage name
-            config_stage = variables_manager.get_stage_mapping(stage_name)
-            addon = variables_manager.get_stage_addon(config_stage)
-
-            if addon:
-                # Add addon at the beginning of user content for better LLM influence
-                user_content = f"{addon}\n\n{user_content}"
-                logger.debug(f"Added variable addon to {stage_name} prompt ({len(addon)} chars)")
 
         messages = []
         if system_content:
@@ -551,7 +547,7 @@ async def _make_llm_request_with_timeout(stage_name: str, model_name: str, messa
         except asyncio.TimeoutError:
             logger.warning(f"⏰ TIMEOUT: Model {current_model} timed out after {timeout}s ({model_label} for {stage_name})")
             if model_index == len(models_to_try) - 1:  # Last model
-                logger.error(f"🚨 ALL MODELS TIMED OUT for {stage_name}. Models tried: {models_to_try}")
+                logger.error(f"🚨 ALL MODELS TIMED OUT for {stage_name}. Models tried: {models_to_try}", exc_info=True)
                 raise Exception(f"All models timed out for {stage_name}: {models_to_try}")
             else:
                 next_model = models_to_try[model_index + 1] if model_index + 1 < len(models_to_try) else "unknown"
@@ -1039,13 +1035,13 @@ async def _generate_single_section_async(section: Dict, idx: int, topic: str,
             return result
 
         except Exception as e:
-            logger.error(f"❌ Section {idx} attempt {attempt} failed: {e}")
+            logger.error(f"❌ Section {idx} attempt {attempt} failed: {e}", exc_info=True)
             if attempt < SECTION_MAX_RETRIES:
                 wait_time = attempt * 5  # Progressive backoff: 5s, 10s, 15s
                 logger.info(f"⏳ Waiting {wait_time}s before retry...")
                 await asyncio.sleep(wait_time)
             else:
-                logger.error(f"💥 Section {idx} failed after {SECTION_MAX_RETRIES} attempts")
+                logger.error(f"💥 Section {idx} failed after {SECTION_MAX_RETRIES} attempts", exc_info=True)
                 return {
                     "section_num": idx,
                     "section_title": section.get("section_title", ""),
@@ -1761,7 +1757,7 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                 time.sleep(delay)
 
         except Exception as e:
-            logger.error(f"❌ Fact-check failed for group {group_num}: {e}")
+            logger.error(f"❌ Fact-check failed for group {group_num}: {e}", exc_info=True)
 
             # Track failure in status
             fact_check_status["failed_groups"] += 1
@@ -1985,8 +1981,8 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
         logger.warning(f"💥 All 3 attempts failed for {model_label} model: {current_model}")
 
     # All models and attempts failed
-    logger.error(f"🚨 EDITORIAL REVIEW COMPLETELY FAILED - all models exhausted")
-    logger.error(f"Models tried: {[m['model'] for m in models_to_try]}")
+    logger.error(f"🚨 EDITORIAL REVIEW COMPLETELY FAILED - all models exhausted", exc_info=True)
+    logger.error(f"Models tried: {[m['model'] for m in models_to_try]}", exc_info=True)
 
     return _create_error_response(
         topic,
@@ -2218,7 +2214,7 @@ def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = N
                 time.sleep(delay)
 
         except Exception as e:
-            logger.error(f"❌ Link placement failed for group {group_num}: {e}")
+            logger.error(f"❌ Link placement failed for group {group_num}: {e}", exc_info=True)
 
             # Track failure in status
             link_placement_status["failed_groups"] += 1
@@ -2299,7 +2295,8 @@ def translate_content(content: str, target_language: str, topic: str, base_path:
             content_type,
             "11_translation",
             {
-                "content_to_translate": content
+                "content_to_translate": content,
+                "language": target_language  # Pass target language for {language} placeholder
             },
             variables_manager=variables_manager,
             stage_name="translation"
@@ -2376,7 +2373,7 @@ def translate_content(content: str, target_language: str, topic: str, base_path:
         return translated_content, translation_status
 
     except Exception as e:
-        logger.error(f"❌ Translation failed: {e}")
+        logger.error(f"❌ Translation failed: {e}", exc_info=True)
         translation_status["success"] = False
         translation_status["error"] = str(e)
 

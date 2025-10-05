@@ -69,51 +69,48 @@ class VariablesManager:
         expected_python_type = type_map.get(expected_type, str)
         return isinstance(value, expected_python_type)
 
-    def get_stage_addon(self, stage_name: str) -> str:
+    def get_variables_for_replacement(self) -> Dict[str, str]:
         """
-        Get combined prompt addon for a specific pipeline stage
-
-        Args:
-            stage_name: Name of the pipeline stage (e.g., 'generate_article', 'editorial_review')
+        Get all active variables formatted for prompt replacement.
+        Returns dict with variable names and formatted strings using templates.
+        If variable is not set or empty, returns empty string.
 
         Returns:
-            Combined prompt addon string for all active variables applicable to this stage
+            Dictionary of variable_name: formatted_string pairs
         """
-        addons = []
+        result = {}
 
-        for var_name, value in self.active_variables.items():
-            if var_name not in self.config.get("variables", {}):
+        for var_name, var_config in self.config.get("variables", {}).items():
+            # Get value from active variables or use default
+            value = self.active_variables.get(var_name)
+
+            if value is None:
+                value = var_config.get("default")
+
+            # If still None or empty, return empty string for this variable
+            if value is None or value == "":
+                result[var_name] = ""
                 continue
 
-            var_config = self.config["variables"][var_name]
+            # Get template and format it with value
+            template = var_config.get("template", "")
 
-            # Check if this variable applies to current stage
-            if stage_name in var_config.get("stages", []):
-                prompt_addon = var_config.get("prompt_addon", "")
+            if template:
+                # Special handling for boolean values
+                if var_config.get("type") == "boolean" and value:
+                    # For boolean, include template only if True (no {value} replacement)
+                    result[var_name] = template
+                elif "{value}" in template:
+                    # Replace {value} placeholder with actual value
+                    result[var_name] = template.replace("{value}", str(value))
+                else:
+                    # No placeholder, just use template as-is
+                    result[var_name] = template
+            else:
+                # No template, just return the value
+                result[var_name] = str(value)
 
-                # Replace {value} placeholder with actual value
-                if prompt_addon:
-                    # Special handling for boolean values
-                    if var_config.get("type") == "boolean" and value:
-                        # For boolean, include addon only if True
-                        addons.append(prompt_addon)
-                    elif "{value}" in prompt_addon:
-                        # Replace placeholder with value
-                        addon = prompt_addon.replace("{value}", str(value))
-                        addons.append(addon)
-                    else:
-                        # No placeholder, just append
-                        addons.append(prompt_addon)
-
-                    logger.debug(f"Added {var_name} addon for stage {stage_name}")
-
-        # Combine all addons with newlines
-        combined_addon = "\n".join(addons)
-
-        if combined_addon:
-            logger.info(f"Stage {stage_name} has {len(addons)} variable addon(s)")
-
-        return combined_addon
+        return result
 
     def get_active_variables_summary(self) -> Dict[str, Any]:
         """Get summary of all active variables"""
@@ -126,28 +123,6 @@ class VariablesManager:
         """Clear all active variables"""
         self.active_variables.clear()
         logger.debug("Cleared all active variables")
-
-    def get_stage_mapping(self, stage_name: str) -> Dict[str, str]:
-        """
-        Map common function names to stage names used in config
-
-        Args:
-            stage_name: Function or stage name
-
-        Returns:
-            Mapped stage name for config lookup
-        """
-        # Map function names to config stage names
-        stage_map = {
-            "generate_article_by_sections": "generate_article",
-            "_generate_single_section_async": "generate_article",
-            "fact_check_sections": "fact_check",
-            "editorial_review": "editorial_review",
-            "create_structure": "create_structure"
-        }
-
-        # Return mapped name or original if not in map
-        return stage_map.get(stage_name, stage_name)
 
     @classmethod
     def create_from_args(cls, args_dict: Dict[str, Any]) -> 'VariablesManager':
@@ -173,7 +148,8 @@ class VariablesManager:
             'include_examples': args_dict.get('include_examples'),
             'seo_keywords': args_dict.get('seo_keywords'),
             'language': args_dict.get('language'),
-            'fact_check_mode': args_dict.get('fact_check_mode', 'on')
+            'fact_check_mode': args_dict.get('fact_check_mode', 'on'),
+            'link_placement_mode': args_dict.get('link_placement_mode', 'on')
         }
 
         # Filter out None values

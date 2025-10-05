@@ -42,7 +42,7 @@ class FirecrawlClient:
             logger.info(f"Found {len(results)} results from Firecrawl search.")
             return results
         except requests.RequestException as e:
-            logger.error(f"An error occurred during Firecrawl search: {e}")
+            logger.error(f"An error occurred during Firecrawl search: {e}", exc_info=True)
             return []
 
     def scrape_urls(self, urls: List[str]) -> List[Dict[str, Any]]:
@@ -66,7 +66,7 @@ class FirecrawlClient:
                     if result:  # Only add non-empty results
                         results.append(result)
                 except Exception as e:
-                    logger.error(f"❌ Failed to scrape {url}: {e}")
+                    logger.error(f"❌ Failed to scrape {url}: {e}", exc_info=True)
 
         # Log summary
         successful_scrapes = [r for r in results if r]
@@ -120,10 +120,10 @@ class FirecrawlClient:
                     time.sleep(3)
                     continue
                 else:
-                    logger.error(f"❌ Final timeout for {url}: {e}")
+                    logger.error(f"❌ Final timeout for {url}: {e}", exc_info=True)
                     return {}
             except requests.RequestException as e:
-                logger.error(f"❌ Failed to scrape {url}: {e}")
+                logger.error(f"❌ Failed to scrape {url}: {e}", exc_info=True)
                 return {}
 
         return {}

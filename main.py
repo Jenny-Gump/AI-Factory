@@ -328,7 +328,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
                         logger.warning(f"🔄 Primary model failed, switching to fallback model...")
 
             except Exception as e:
-                logger.error(f"Error with {current_model} on attempt {attempt}: {e}")
+                logger.error(f"Error with {current_model} on attempt {attempt}: {e}", exc_info=True)
                 if attempt < 3:
                     time.sleep(2)
 
@@ -939,7 +939,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
                     save_artifact(publication_result, paths["editorial_review"], "wordpress_publication_error.json")
 
             except Exception as e:
-                logger.error(f"❌ WordPress publication error: {e}")
+                logger.error(f"❌ WordPress publication error: {e}", exc_info=True)
                 return
         else:
             logger.info("WordPress publication skipped (--skip-publication)")
@@ -1032,7 +1032,9 @@ if __name__ == "__main__":
             logger.info("\\n🛑 Stage interrupted by user")
             sys.exit(130)
         except Exception as e:
-            logger.error(f"💥 Stage '{args.start_from_stage}' failed: {e}")
+            logger.error(f"💥 Stage '{args.start_from_stage}' failed: {e}", exc_info=True)
+            import traceback
+            traceback.print_exc()
             sys.exit(1)
     else:
         logger.info(f"Starting full pipeline for topic: {args.topic}")
@@ -1046,5 +1048,7 @@ if __name__ == "__main__":
             logger.info("\\n🛑 Pipeline interrupted by user")
             sys.exit(130)
         except Exception as e:
-            logger.error(f"💥 Pipeline failed: {e}")
+            logger.error(f"💥 Pipeline failed: {type(e).__name__}: {e}", exc_info=True)
+            import traceback
+            traceback.print_exc()
             sys.exit(1)

@@ -20,12 +20,21 @@ def setup_logger(verbose: bool = False):
     # Clear any existing handlers to avoid duplicates
     logging.getLogger().handlers.clear()
 
+    # Create separate error log handler with detailed format
+    error_handler = logging.FileHandler("errors.log")
+    error_handler.setLevel(logging.ERROR)
+    error_formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d - %(message)s\n%(pathname)s"
+    )
+    error_handler.setFormatter(error_formatter)
+
     logging.basicConfig(
         level=log_level,
         format=log_format,
         handlers=[
             logging.FileHandler("app.log"),
-            logging.StreamHandler(sys.stdout)
+            logging.StreamHandler(sys.stdout),
+            error_handler
         ]
     )
 
@@ -101,6 +110,14 @@ def configure_logging(verbose: bool = False):
     file_handler = logging.FileHandler("app.log")
     console_handler = logging.StreamHandler(sys.stdout)
 
+    # Create separate error log handler with detailed format
+    error_handler = logging.FileHandler("errors.log")
+    error_handler.setLevel(logging.ERROR)
+    error_formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d - %(message)s\n%(pathname)s"
+    )
+    error_handler.setFormatter(error_formatter)
+
     # Apply quiet mode filter to console in non-verbose mode
     if not verbose:
         console_handler.addFilter(QuietModeFilter())
@@ -115,6 +132,7 @@ def configure_logging(verbose: bool = False):
     root_logger.setLevel(log_level)
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
+    root_logger.addHandler(error_handler)
 
     # Suppress noisy loggers in non-verbose mode
     if not verbose:

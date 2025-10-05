@@ -182,7 +182,9 @@ class BatchProcessor:
             return len(self.progress.failed_topics) == 0
             
         except Exception as e:
-            logger.error(f"Batch processing failed: {e}")
+            logger.error(f"Batch processing failed: {e}", exc_info=True)
+            import traceback
+            traceback.print_exc()
             return False
         finally:
             self._cleanup()
@@ -226,7 +228,7 @@ class BatchProcessor:
             try:
                 await pipeline_task
             except Exception as e:
-                logger.error(f"❌ Pipeline failed for topic '{topic}': {e}")
+                logger.error(f"❌ Pipeline failed for topic '{topic}': {e}", exc_info=True)
                 raise TopicProcessingError(f"Pipeline error for topic: {topic} - {e}")
             
             # 2. Успешное завершение - прямолинейная логика без проверок
