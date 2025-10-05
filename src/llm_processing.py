@@ -726,17 +726,38 @@ def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages
                 )
 
             # СОХРАНЕНИЕ СЫРОГО ОТВЕТА В ПАПКЕ ЭТАПА
-            raw_response_content = response_obj.choices[0].message.content
-
-            # DEBUG: Log response content size in retry function
-            logger.info(f"🔍 RETRY FUNCTION RAW_RESPONSE: {len(raw_response_content)} chars")
-
-            # Сохраняем сырой ответ в папку этапа если base_path передан
+            # СНАЧАЛА сохраняем ВЕСЬ response_obj чтобы не потерять данные при ошибке извлечения
             if base_path:
                 try:
                     responses_dir = os.path.join(base_path, "llm_responses_raw")
                     os.makedirs(responses_dir, exist_ok=True)
 
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+                    # Сохранить ПОЛНЫЙ response_obj как JSON
+                    raw_obj_file = os.path.join(responses_dir, f"{stage_name}_raw_obj_attempt{attempt+1}_{timestamp}.json")
+                    with open(raw_obj_file, 'w', encoding='utf-8') as f:
+                        # Пробуем model_dump(), если не работает - сохраняем как dict
+                        if hasattr(response_obj, 'model_dump'):
+                            json.dump(response_obj.model_dump(), f, indent=2, ensure_ascii=False)
+                        elif hasattr(response_obj, 'dict'):
+                            json.dump(response_obj.dict(), f, indent=2, ensure_ascii=False)
+                        else:
+                            f.write(str(response_obj))
+                    logger.info(f"💾 RAW RESPONSE_OBJ SAVED: {raw_obj_file}")
+                except Exception as save_error:
+                    logger.error(f"❌ Failed to save raw response_obj: {save_error}")
+
+            # ПОТОМ пытаемся извлечь content
+            raw_response_content = response_obj.choices[0].message.content
+
+            # DEBUG: Log response content size in retry function
+            logger.info(f"🔍 RETRY FUNCTION RAW_RESPONSE: {len(raw_response_content)} chars")
+
+            # Сохраняем текстовую версию тоже
+            if base_path:
+                try:
+                    responses_dir = os.path.join(base_path, "llm_responses_raw")
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     response_file = os.path.join(responses_dir, f"{stage_name}_response_attempt{attempt+1}_{timestamp}.txt")
 
@@ -749,9 +770,9 @@ def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages
                         f.write(f"SUCCESS: True\n")
                         f.write("=" * 80 + "\n")
                         f.write(raw_response_content)
-                    logger.info(f"💾 RAW RESPONSE SAVED: {response_file}")
+                    logger.info(f"💾 RAW RESPONSE TEXT SAVED: {response_file}")
                 except Exception as save_error:
-                    logger.error(f"❌ Failed to save raw response: {save_error}")
+                    logger.error(f"❌ Failed to save raw response text: {save_error}")
 
             # Диагностика ответа API
             finish_reason = response_obj.choices[0].finish_reason
@@ -1907,16 +1928,19 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
             logger.info(f"📝 Editorial review attempt {attempt}/3 with {model_label} model...")
 
             try:
+                # Prepare API parameters
+                api_params = {
+                    "stage_name": "editorial_review",
+                    "model_name": current_model,
+                    "messages": messages,
+                    "token_tracker": token_tracker,
+                    "base_path": base_path,
+                    "temperature": 0.2,
+                    "response_format": {"type": "json_object"} if not current_model.startswith("perplexity/") else None
+                }
+
                 # Make LLM request (this handles its own retries internally)
-                response_obj, actual_model = _make_llm_request_with_retry_sync(
-                    stage_name="editorial_review",
-                    model_name=current_model,
-                    messages=messages,
-                    token_tracker=token_tracker,
-                    base_path=base_path,
-                    temperature=0.2,
-                    response_format={"type": "json_object"} if not current_model.startswith("perplexity/") else None
-                )
+                response_obj, actual_model = _make_llm_request_with_retry_sync(**api_params)
 
                 response = response_obj.choices[0].message.content
                 response = clean_llm_tokens(response)  # Очищаем токены LLM
@@ -2230,3 +2254,102 @@ def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = N
     logger.info(f"Combined content length: {len(combined_content_with_links)} chars")
 
     return combined_content_with_links, link_placement_status
+
+
+def translate_content(content: str, target_language: str, topic: str, base_path: str = None,
+                      token_tracker: TokenTracker = None, model_name: str = None,
+                      content_type: str = "basic_articles", variables_manager=None) -> tuple:
+    """
+    Translates article content from Russian to target language.
+
+    Args:
+        content: Combined article content to translate
+        target_language: Target language for translation
+        topic: Article topic
+        base_path: Path to save translation interactions
+        token_tracker: Token usage tracker
+        model_name: Override model name (uses config default if None)
+        content_type: Content type for prompt selection
+        variables_manager: Optional VariablesManager instance
+
+    Returns:
+        Tuple: (translated_content, translation_status)
+    """
+    logger.info(f"Starting translation to {target_language}...")
+
+    # Initialize translation status tracking
+    translation_status = {
+        "success": False,
+        "target_language": target_language,
+        "original_length": len(content),
+        "translated_length": 0,
+        "error": None
+    }
+
+    # Skip translation if no content
+    if not content or len(content.strip()) < 100:
+        logger.warning("Content too short or empty, skipping translation")
+        translation_status["success"] = False
+        translation_status["error"] = "Content too short"
+        return content, translation_status
+
+    try:
+        # Prepare messages for translation
+        messages = _load_and_prepare_messages(
+            content_type,
+            "11_translation",
+            {
+                "content_to_translate": content
+            },
+            variables_manager=variables_manager,
+            stage_name="translation"
+        )
+
+        # Make translation request
+        response_obj, actual_model = _make_llm_request_with_retry(
+            stage_name="translation",
+            model_name=model_name or LLM_MODELS.get("translation"),
+            messages=messages,
+            token_tracker=token_tracker,
+            base_path=base_path,
+            temperature=0.3  # Slightly higher for natural translation
+        )
+
+        translated_content = response_obj.choices[0].message.content
+        translated_content = clean_llm_tokens(translated_content)  # Clean LLM tokens
+
+        # Validate content quality
+        if not validate_content_quality(translated_content, min_length=100):
+            raise Exception("Translation content quality validation failed")
+
+        # Update status
+        translation_status["success"] = True
+        translation_status["translated_length"] = len(translated_content)
+
+        logger.info(f"✅ Translation completed: {translation_status['original_length']} → {translation_status['translated_length']} chars")
+
+        # Save interaction
+        if base_path:
+            save_llm_interaction(
+                base_path=base_path,
+                stage_name="translation",
+                messages=messages,
+                response=translated_content,
+                request_id="translation",
+                extra_params={
+                    "model": actual_model,
+                    "target_language": target_language,
+                    "original_length": translation_status["original_length"],
+                    "translated_length": translation_status["translated_length"]
+                }
+            )
+
+        return translated_content, translation_status
+
+    except Exception as e:
+        logger.error(f"❌ Translation failed: {e}")
+        translation_status["success"] = False
+        translation_status["error"] = str(e)
+
+        # Return original content on failure
+        return content, translation_status

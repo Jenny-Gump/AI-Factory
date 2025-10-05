@@ -55,7 +55,8 @@ LLM_MODELS = {
     "generate_article": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for WordPress article generation
     "fact_check": "gemini-2.5-flash-preview-09-2025",                   # Google Gemini 2.5 Flash (Sept 2025) with native web search for fact-checking
     "link_placement": "gemini-2.5-flash-preview-09-2025",               # Google Gemini 2.5 Flash (Sept 2025) with native web search for finding relevant links
-    "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for editorial formatting and structure
+    "translation": "deepseek/deepseek-chat-v3.1:free",                  # FREE Model for content translation
+    "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model like other stages
 }
 
 # Fallback models for each stage (used when primary model fails)
@@ -65,7 +66,8 @@ FALLBACK_MODELS = {
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "fact_check": "gemini-2.5-flash",                                   # Stable Gemini 2.5 Flash with web search
     "link_placement": "gemini-2.5-flash",                               # Stable Gemini 2.5 Flash with web search
-    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",  # Fallback to Gemini (different provider)
+    "translation": "google/gemini-2.5-flash-lite-preview-06-17",        # Fallback to Gemini 2.5
+    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",  # Fallback to Gemini like other stages
 }
 
 # Retry configuration for LLM requests
@@ -117,7 +119,8 @@ LLM_PROVIDERS = {
             "deepseek/deepseek-chat-v3.1:free",
             "perplexity/sonar-reasoning-pro",
             "perplexity/sonar-reasoning-pro:online",
-            "x-ai/grok-4-fast:free"
+            "x-ai/grok-4-fast:free",
+            "z-ai/glm-4.5-air:free"
         ],
         "extra_headers": {
             "HTTP-Referer": "https://github.com/your-repo/content-generator",

@@ -18,6 +18,7 @@ from src.llm_processing import (
     generate_article_by_sections,  # NEW: for section-by-section generation
     fact_check_sections,  # NEW: for fact-checking individual sections
     place_links_in_sections,  # NEW: for placing relevant links in content
+    translate_content,  # NEW: for translating content to target language
     editorial_review,
     _load_and_prepare_messages,
     _make_llm_request_with_retry,
@@ -103,14 +104,15 @@ def save_html_with_proper_newlines(content: str, path: str, filename: str):
 async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True, content_type: str = "basic_articles",
                                   verbose: bool = False, variables_manager=None):
     """
-    Simplified pipeline for generating basic articles with FAQ and sources.
-    Improved pipeline with configurable content type for different prompt sets.
-    Этапы: 1-6 поиск/очистка → 7 структуры → 8 ультимативная → 9 генерация → 9.5 факт-чек → 10 редактура → 11 публикация
+    Full 14-stage pipeline for generating high-quality articles with FAQ, fact-checking, links, and translation.
+
+    Этапы: 1-6 поиск/очистка → 7 структуры → 8 ультимативная → 9 генерация →
+           10 факт-чек → 11 link placement → 12 translation → 13 редактура → 14 публикация
 
     Args:
         topic: Topic for content generation
         publish_to_wordpress: Whether to publish to WordPress
-        content_type: Type of content to generate
+        content_type: Type of content to generate (basic_articles or guides)
         verbose: Enable verbose logging
         variables_manager: Optional VariablesManager instance with variables
     """
@@ -142,7 +144,8 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         "final_article": os.path.join(base_output_path, "08_article_generation"),
         "fact_check": os.path.join(base_output_path, "09_fact_check"),
         "link_placement": os.path.join(base_output_path, "10_link_placement"),
-        "editorial_review": os.path.join(base_output_path, "11_editorial_review"),
+        "translation": os.path.join(base_output_path, "11_translation"),
+        "editorial_review": os.path.join(base_output_path, "12_editorial_review"),
     }
     for path in paths.values():
         os.makedirs(path, exist_ok=True)
@@ -358,7 +361,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.error("Invalid WordPress data structure returned")
         return
 
-    # --- Этап 9.5: Fact-checking секций ---
+    # --- Этап 10: Fact-checking секций ---
 
     # Check fact-check mode from variables
     fact_check_mode = "on"  # Default
@@ -470,7 +473,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
 
         logger.info(f"Fact-checking completed: Combined content length: {len(fact_checked_content)} characters")
 
-    # --- Этап 10: Link Placement ---
+    # --- Этап 11: Link Placement ---
     link_placement_mode = variables_manager.active_variables.get("link_placement_mode", "on") if variables_manager else "on"
 
     if link_placement_mode == "off":
@@ -510,9 +513,46 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
 
         logger.info(f"✅ Link placement completed: {len(content_with_links)} chars")
 
-    # --- Этап 11: Editorial Review ---
+    # --- Этап 12: Translation ---
+    target_language = variables_manager.active_variables.get("language") if variables_manager else "русский"
+    logger.info(f"🌍 Starting translation to {target_language}...")
+
+    # Extract content from wordpress_data
+    content_to_translate = content_with_links
+
+    # Translate content
+    translated_content, translation_status = translate_content(
+        content=content_to_translate,
+        target_language=target_language,
+        topic=topic,
+        base_path=paths["translation"],
+        token_tracker=token_tracker,
+        model_name=active_models.get("translation"),
+        content_type=content_type,
+        variables_manager=variables_manager
+    )
+
+    # Save translation status
+    save_artifact(translation_status, paths["translation"], "translation_status.json")
+
+    # Save translated content
+    translated_wordpress_data = {
+        "title": wordpress_data.get("title", f"Article on: {topic}"),
+        "content": translated_content,
+        "excerpt": wordpress_data.get("excerpt", f"Auto-generated article on: {topic}"),
+        "slug": wordpress_data.get("slug", topic.lower().replace(" ", "-"))
+    }
+    save_artifact(translated_wordpress_data, paths["translation"], "translated_content.json")
+
+    # Update wordpress_data with translated content
+    wordpress_data["raw_response"] = json.dumps(translated_wordpress_data, ensure_ascii=False)
+    final_content_for_editorial = wordpress_data["raw_response"]
+
+    logger.info(f"✅ Translation completed: {translation_status['translated_length']} chars")
+
+    # --- Этап 13: Editorial Review ---
     logger.info("Starting editorial review and cleanup...")
-    raw_response = wordpress_data.get("raw_response", "")
+    raw_response = final_content_for_editorial
     wordpress_data_final = editorial_review(
         raw_response=raw_response,
         topic=topic,
@@ -537,7 +577,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.warning("Editorial review returned invalid structure, using original data")
         wordpress_data_final = wordpress_data
 
-    # --- Этап 12 (опциональный): WordPress Publication ---
+    # --- Этап 14 (опциональный): WordPress Publication ---
     if publish_to_wordpress:
         logger.info("Starting WordPress publication...")
         try:
@@ -580,7 +620,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     token_tracker.save_token_report(base_output_path)
     logger.info(f"Token usage report: {token_report_path}")
 
-async def run_single_stage(topic: str, stage: str, content_type: str = "basic_articles", publish_to_wordpress: bool = True, verbose: bool = False):
+async def run_single_stage(topic: str, stage: str, content_type: str = "basic_articles", publish_to_wordpress: bool = True, verbose: bool = False, variables_manager=None):
     """
     Запускает pipeline с конкретного этапа, используя существующие данные.
 
@@ -615,12 +655,14 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         "final_article": os.path.join(base_output_path, "08_article_generation"),
         "fact_check": os.path.join(base_output_path, "09_fact_check"),
         "link_placement": os.path.join(base_output_path, "10_link_placement"),
-        "editorial_review": os.path.join(base_output_path, "11_editorial_review")
+        "translation": os.path.join(base_output_path, "11_translation"),
+        "editorial_review": os.path.join(base_output_path, "12_editorial_review")
     }
 
-    # Initialize variables_manager for all stages
-    from src.variables_manager import VariablesManager
-    variables_manager = VariablesManager()
+    # Use passed variables_manager or create empty one
+    if variables_manager is None:
+        from src.variables_manager import VariablesManager
+        variables_manager = VariablesManager()
 
     if stage == "fact_check":
         logger.info("=== Starting Fact-Check Stage ===")
@@ -754,13 +796,71 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         token_summary = token_tracker.get_session_summary()
         logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
 
+    elif stage == "translation":
+        logger.info("=== Starting Translation Stage ===")
+
+        # Get target language (default to русский if not specified)
+        target_language = variables_manager.active_variables.get("language") if variables_manager else "русский"
+        logger.info(f"🌍 Starting translation to {target_language}...")
+
+        # Load content from link_placement (try merged first, then fallback to content_with_links)
+        merged_content_path = os.path.join(paths["link_placement"], "merged_content_with_links.json")
+        if not os.path.exists(merged_content_path):
+            # Fallback to older format
+            merged_content_path = os.path.join(paths["link_placement"], "content_with_links.json")
+            if not os.path.exists(merged_content_path):
+                logger.error(f"Required file not found: neither merged_content_with_links.json nor content_with_links.json")
+                return
+            logger.info("Using content_with_links.json (older format)")
+
+        with open(merged_content_path, 'r', encoding='utf-8') as f:
+            merged_content = json.load(f)
+
+        content_to_translate = merged_content.get("content", "")
+
+        # Translate content
+        translated_content, translation_status = translate_content(
+            content=content_to_translate,
+            target_language=target_language,
+            topic=topic,
+            base_path=paths["translation"],
+            token_tracker=token_tracker,
+            model_name=active_models.get("translation"),
+            content_type=content_type,
+            variables_manager=variables_manager
+        )
+
+        # Save translation status
+        save_artifact(translation_status, paths["translation"], "translation_status.json")
+
+        # Save translated content
+        translated_wordpress_data = {
+            "title": merged_content.get("title", f"Article on: {topic}"),
+            "content": translated_content,
+            "excerpt": merged_content.get("excerpt", ""),
+            "seo_title": merged_content.get("seo_title", ""),
+            "meta_description": merged_content.get("meta_description", ""),
+            "sources": merged_content.get("sources", []),
+            "faq": merged_content.get("faq", [])
+        }
+        save_artifact(translated_wordpress_data, paths["translation"], "translated_content.json")
+
+        logger.info(f"✅ Translation completed: {translation_status['translated_length']} chars")
+
+        # Show token statistics
+        token_summary = token_tracker.get_session_summary()
+        logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
+
     elif stage == "editorial_review":
         logger.info("=== Starting Editorial Review Stage ===")
 
-        # Try to load data after link_placement first, fallback to fact_check
-        merged_content_path = os.path.join(paths["link_placement"], "merged_content_with_links.json")
+        # Try to load data after translation first, then link_placement, then fact_check
+        merged_content_path = os.path.join(paths["translation"], "translated_content.json")
         if not os.path.exists(merged_content_path):
-            # Fallback to fact_check if link_placement was skipped
+            # Fallback to link_placement if translation was skipped
+            merged_content_path = os.path.join(paths["link_placement"], "merged_content_with_links.json")
+        if not os.path.exists(merged_content_path):
+            # Fallback to fact_check if both were skipped
             merged_content_path = os.path.join(paths["fact_check"], "merged_fact_checked_content.json")
         if not os.path.exists(merged_content_path):
             logger.error(f"Required file not found: {merged_content_path}")
@@ -861,7 +961,7 @@ if __name__ == "__main__":
                        default='basic_articles', help='Type of content to generate')
     parser.add_argument('--skip-publication', action='store_true',
                        help='Skip WordPress publication')
-    parser.add_argument('--start-from-stage', choices=['fact_check', 'link_placement', 'editorial_review', 'publication'],
+    parser.add_argument('--start-from-stage', choices=['fact_check', 'link_placement', 'translation', 'editorial_review', 'publication'],
                        help='Start pipeline from specific stage (requires existing output folder)')
     parser.add_argument('--verbose', action='store_true',
                        help='Show detailed debug logs (default: show only key events)')
@@ -926,7 +1026,7 @@ if __name__ == "__main__":
         logger.info(f"Content type: {args.content_type}")
 
         try:
-            asyncio.run(run_single_stage(args.topic, args.start_from_stage, args.content_type, publish_to_wordpress, args.verbose))
+            asyncio.run(run_single_stage(args.topic, args.start_from_stage, args.content_type, publish_to_wordpress, args.verbose, variables_manager))
             logger.info(f"✅ Stage '{args.start_from_stage}' completed successfully")
         except KeyboardInterrupt:
             logger.info("\\n🛑 Stage interrupted by user")

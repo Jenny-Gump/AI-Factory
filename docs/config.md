@@ -41,6 +41,7 @@ LLM_MODELS = {
     "generate_article": "deepseek/deepseek-chat-v3.1:free",       # FREE Model для генерации статей
     "fact_check": "gemini-2.5-flash",                             # Google Gemini с нативным веб-поиском
     "link_placement": "deepseek/deepseek-chat-v3.1:free",         # FREE Model для расстановки ссылок
+    "translation": "deepseek/deepseek-chat-v3.1:free",            # FREE Model для перевода контента
     "editorial_review": "deepseek/deepseek-chat-v3.1:free",       # FREE Model для редакторской правки
 }
 ```
@@ -53,6 +54,7 @@ FALLBACK_MODELS = {
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",
     "fact_check": "deepseek/deepseek-chat-v3.1:free",             # Fallback без веб-поиска
     "link_placement": "google/gemini-2.5-flash-lite-preview-06-17", # Fallback для расстановки ссылок
+    "translation": "google/gemini-2.5-flash-lite-preview-06-17",  # Fallback для перевода
     "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",
 }
 ```
