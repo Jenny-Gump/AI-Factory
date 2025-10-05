@@ -2305,22 +2305,51 @@ def translate_content(content: str, target_language: str, topic: str, base_path:
             stage_name="translation"
         )
 
-        # Make translation request
-        response_obj, actual_model = _make_llm_request_with_retry(
-            stage_name="translation",
-            model_name=model_name or LLM_MODELS.get("translation"),
-            messages=messages,
-            token_tracker=token_tracker,
-            base_path=base_path,
-            temperature=0.3  # Slightly higher for natural translation
-        )
+        # Retry loop with length validation
+        max_translation_attempts = 3
+        original_length = len(content)
+        translated_content = None
+        actual_model = None
 
-        translated_content = response_obj.choices[0].message.content
-        translated_content = clean_llm_tokens(translated_content)  # Clean LLM tokens
+        for attempt in range(1, max_translation_attempts + 1):
+            logger.info(f"🔄 Translation attempt {attempt}/{max_translation_attempts}")
 
-        # Validate content quality
-        if not validate_content_quality(translated_content, min_length=100):
-            raise Exception("Translation content quality validation failed")
+            # Make translation request
+            response_obj, actual_model = _make_llm_request_with_retry(
+                stage_name="translation",
+                model_name=model_name or LLM_MODELS.get("translation"),
+                messages=messages,
+                token_tracker=token_tracker,
+                base_path=base_path,
+                temperature=0.3  # Slightly higher for natural translation
+            )
+
+            translated_content = response_obj.choices[0].message.content
+            translated_content = clean_llm_tokens(translated_content)  # Clean LLM tokens
+
+            # Validate content quality
+            if not validate_content_quality(translated_content, min_length=100):
+                raise Exception("Translation content quality validation failed")
+
+            # Check length (95% threshold to allow for minor differences)
+            translated_length = len(translated_content)
+            min_expected_length = original_length * 0.95
+
+            if translated_length >= min_expected_length:
+                logger.info(f"✅ Translation length validated: {translated_length} chars (original: {original_length})")
+                break
+            else:
+                logger.warning(f"⚠️ Translation truncated: {translated_length} chars vs {original_length} original (attempt {attempt}/{max_translation_attempts})")
+
+                if attempt < max_translation_attempts:
+                    # Add warning message for retry
+                    messages.append({
+                        "role": "user",
+                        "content": f"⚠️ КРИТИЧЕСКАЯ ОШИБКА: Предыдущий перевод урезан ({translated_length} символов вместо ~{original_length}). Верните ПОЛНЫЙ перевод со ВСЕМИ элементами (h2, code blocks, links)! НЕ СОКРАЩАЙТЕ!"
+                    })
+                    logger.info("🔄 Retrying translation with warning message...")
+                else:
+                    logger.error(f"❌ Translation still truncated after {max_translation_attempts} attempts")
 
         # Update status
         translation_status["success"] = True
