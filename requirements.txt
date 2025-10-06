@@ -8,3 +8,4 @@ psutil
 
 # Optional dependencies (system works without them)
 beautifulsoup4  # For improved anchor text validation in link processing (fallback)
+pyenchant  # For dictionary-based spam detection with language support

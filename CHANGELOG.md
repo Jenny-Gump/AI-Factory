@@ -1,5 +1,52 @@
 # Content Factory Changelog
 
+## 🛡️ Version 2.2.0 - October 6, 2025
+
+### **ANTI-SPAM VALIDATION UPGRADE**
+
+#### **📊 DICTIONARY-BASED SPAM DETECTION**
+
+**Добавлена pyenchant валидация** для обнаружения gibberish контента:
+
+**Основные возможности:**
+- **Language-aware detection**: Автоопределение языка из variables_manager
+- **Real word ratio**: <15% настоящих слов = spam
+- **Consecutive gibberish**: 15+ фейковых слов подряд = spam
+- **Multi-language support**: ru, en_US, es, fr, de, uk (200+ languages)
+- **Graceful fallback**: Работает без pyenchant (опциональная зависимость)
+- **Fast sampling**: Проверка каждого 3-го слова для производительности
+
+**3 новые regex проверки:**
+1. **Single-char-dot pattern**: `([А-ЯA-ZЁ]\.){10,}` для "К.Р.Н.О.Т." спама
+2. **Dot dominance**: порог понижен с 70% до 50%
+3. **Vowel check**: <30% слов с гласными = spam
+
+**Технические детали:**
+- **Функция**: `validate_content_with_dictionary()` в src/llm_processing.py
+- **Integration**: generate_article_by_sections() с retry логикой
+- **Dependency**: pyenchant (optional)
+- **Документация**: **[docs/CONTENT_VALIDATION.md](docs/CONTENT_VALIDATION.md)** (NEW)
+
+**Результаты тестов:**
+- ✅ Испанский spam: BLOCKED (0% real words)
+- ✅ Русский normal: PASSED
+- ✅ Английский normal: PASSED
+- ✅ Gibberish: BLOCKED (14.9% real words)
+- ✅ Technical content: PASSED (tolerant to proper nouns)
+
+**CLI примеры:**
+```bash
+# Испанский контент
+python main.py "tema" --language "español"
+# → Проверка по испанскому словарю
+
+# Русский (default)
+python main.py "тема"
+# → Проверка по русскому словарю
+```
+
+---
+
 ## 🆕 Version 2.3.0 - October 2025
 
 ### **TRANSLATION FEATURE - STAGE 11 ADDITION**

@@ -56,6 +56,7 @@ python3 batch_processor.py topics.txt
 ### Справочная информация:
 - **[docs/config.md](docs/config.md)** - Полный справочник по конфигурации
 - **[docs/variables_quick_reference.md](docs/variables_quick_reference.md)** - Краткий справочник переменных
+- **[docs/CONTENT_VALIDATION.md](docs/CONTENT_VALIDATION.md)** - Система валидации и защиты от спама
 
 ---
 

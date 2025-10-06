@@ -134,8 +134,113 @@ def validate_content_quality(content: str, min_length: int = 50) -> bool:
             logger.warning(f"Content validation failed: too many special characters ({printable_ratio:.1%} printable)")
             return False
 
+    # 7. Проверка на паттерн "К.Р.Н.О.Т." (single-char-dot spam) - v2.2.0
+    single_char_dots = re.findall(r'([А-ЯA-ZЁ]\.){10,}', content)
+    if single_char_dots:
+        logger.warning(f"Content validation failed: single-char-dot pattern detected")
+        return False
+
+    # 8. Проверка на преобладание точек (50% threshold) - v2.2.0
+    dot_count = content.count('.')
+    if len(content) > 100:
+        dot_ratio = dot_count / len(content)
+        if dot_ratio > 0.5:  # >50% точек
+            logger.warning(f"Content validation failed: excessive dots ({dot_ratio:.1%})")
+            return False
+
+    # 9. Проверка на слова без гласных (Russian/English vowel check) - v2.2.0
+    if len(words) > 10:
+        vowels_ru = 'аеёиоуыэюяАЕЁИОУЫЭЮЯ'
+        vowels_en = 'aeiouAEIOU'
+        all_vowels = vowels_ru + vowels_en
+
+        words_with_vowels = sum(1 for word in words if any(v in word for v in all_vowels))
+        vowel_ratio = words_with_vowels / len(words)
+
+        if vowel_ratio < 0.3:  # <30% слов содержат гласные
+            logger.warning(f"Content validation failed: too few words with vowels ({vowel_ratio:.1%})")
+            return False
+
     # Если все проверки пройдены
     logger.debug(f"Content validation passed: {len(content)} chars, quality checks OK")
+    return True
+
+
+def validate_content_with_dictionary(content: str, language: str = "русский") -> bool:
+    """
+    Проверка контента через словарь pyenchant с поддержкой language переменной.
+
+    Args:
+        content: Текст для проверки
+        language: Язык из variables_manager ("русский", "английский", etc.)
+
+    Returns:
+        bool: True если качественный, False если спам
+    """
+    try:
+        import enchant
+    except ImportError:
+        logger.warning("pyenchant not installed, skipping dictionary validation")
+        return True  # Graceful fallback
+
+    # Map language variable to enchant dictionaries
+    lang_map = {
+        "русский": "ru",
+        "английский": "en_US",
+        "украинский": "uk",
+        "español": "es",
+        "french": "fr",
+        "deutsch": "de",
+    }
+
+    dict_lang = lang_map.get(language.lower(), "en_US")  # Default to English
+
+    # Check if dictionary exists
+    if not enchant.dict_exists(dict_lang):
+        logger.warning(f"Dictionary {dict_lang} not found, using en_US fallback")
+        dict_lang = "en_US"
+
+    # Create dictionary
+    try:
+        d = enchant.Dict(dict_lang)
+    except Exception as e:
+        logger.warning(f"Failed to load dictionary {dict_lang}: {e}")
+        return True  # Graceful fallback
+
+    # Extract words (3+ chars, no numbers)
+    import re
+    words = re.findall(r'\b[а-яА-ЯёЁa-zA-Z]{3,}\b', content)
+
+    if len(words) < 10:
+        return True  # Not enough words to validate
+
+    # Sample every 3rd word for performance (fast sampling)
+    sample_words = words[::3]
+
+    # Check real word ratio
+    real_words = sum(1 for word in sample_words if d.check(word))
+    real_ratio = real_words / len(sample_words)
+
+    if real_ratio < 0.15:  # <15% real words = spam (lowered for mixed-language content)
+        logger.warning(f"Dictionary validation failed: {real_ratio:.1%} real words in {dict_lang}")
+        return False
+
+    # Check consecutive gibberish (10+ fake words in a row)
+    consecutive_gibberish = 0
+    max_consecutive = 0
+
+    for word in words:
+        if not d.check(word):
+            consecutive_gibberish += 1
+            max_consecutive = max(max_consecutive, consecutive_gibberish)
+        else:
+            consecutive_gibberish = 0
+
+    if max_consecutive >= 15:  # Increased for technical content with proper nouns
+        logger.warning(f"Dictionary validation failed: {max_consecutive} consecutive gibberish words")
+        return False
+
+    logger.debug(f"Dictionary validation passed: {real_ratio:.1%} real words in {dict_lang}")
     return True
 
 
@@ -907,7 +1012,7 @@ def extract_prompts_from_article(article_text: str, topic: str, base_path: str =
         content = clean_llm_tokens(content)  # Очищаем токены LLM
 
         # Проверяем качество контента
-        if not validate_content_quality(content, min_length=100):
+        if not validate_content_quality(content, min_length=300):
             raise Exception("Content quality validation failed - likely spam or corrupted response")
 
         # Сохраняем запрос и ответ для отладки
@@ -986,14 +1091,28 @@ async def _generate_single_section_async(section: Dict, idx: int, topic: str,
             section_content = response_obj.choices[0].message.content
             section_content = clean_llm_tokens(section_content)  # Очищаем токены LLM
 
-            # Validate content quality (spam/corruption check)
-            if not validate_content_quality(section_content, min_length=50):
+            # Get language from variables_manager
+            target_language = "русский"  # default
+            if variables_manager:
+                target_language = variables_manager.active_variables.get("language", "русский")
+
+            # Validate content quality (spam/corruption check - regex)
+            if not validate_content_quality(section_content, min_length=300):
                 logger.warning(f"⚠️ Section {idx} attempt {attempt} failed content quality validation (spam/corruption)")
                 if attempt < SECTION_MAX_RETRIES:
                     time.sleep(3)  # Wait 3 seconds before retry
                     continue
                 else:
                     raise Exception("All attempts failed content quality validation")
+
+            # Validate with dictionary (pyenchant)
+            if not validate_content_with_dictionary(section_content, target_language):
+                logger.warning(f"⚠️ Section {idx} attempt {attempt} failed dictionary validation for language: {target_language}")
+                if attempt < SECTION_MAX_RETRIES:
+                    time.sleep(3)  # Wait 3 seconds before retry
+                    continue
+                else:
+                    raise Exception("All attempts failed dictionary validation")
 
             # Validate content length
             if not section_content or len(section_content.strip()) < 50:
@@ -1168,7 +1287,7 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                 section_content = clean_llm_tokens(section_content)  # Очищаем токены LLM
 
                 # Validate content quality (spam/corruption check)
-                if not validate_content_quality(section_content, min_length=50):
+                if not validate_content_quality(section_content, min_length=300):
                     logger.warning(f"⚠️ Section {idx} attempt {attempt} failed content quality validation (spam/corruption)")
                     if attempt < SECTION_MAX_RETRIES:
                         time.sleep(3)  # Wait 3 seconds before retry
@@ -1725,7 +1844,7 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
             fact_checked_content = clean_llm_tokens(fact_checked_content)  # Очищаем токены LLM
 
             # Validate content quality (spam/corruption check)
-            if not validate_content_quality(fact_checked_content, min_length=100):
+            if not validate_content_quality(fact_checked_content, min_length=300):
                 raise Exception(f"Fact-check content quality validation failed for group {group_index} - likely spam or corrupted response")
 
             # DEBUG: Log content size immediately after extraction
@@ -1942,7 +2061,7 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
                 response = clean_llm_tokens(response)  # Очищаем токены LLM
 
                 # Validate content quality (spam/corruption check)
-                if not validate_content_quality(response, min_length=100):
+                if not validate_content_quality(response, min_length=300):
                     logger.warning(f"⚠️ Editorial review attempt {attempt_num} failed content quality validation (spam/corruption)")
                     if attempt_num < max_retries:
                         continue  # Try again with same model
@@ -2187,7 +2306,7 @@ def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = N
             content_with_links = clean_llm_tokens(content_with_links)  # Clean LLM tokens
 
             # Validate content quality
-            if not validate_content_quality(content_with_links, min_length=100):
+            if not validate_content_quality(content_with_links, min_length=300):
                 raise Exception(f"Link placement content quality validation failed for group {group_num}")
 
             # Debug logging
@@ -2325,7 +2444,7 @@ def translate_content(content: str, target_language: str, topic: str, base_path:
             translated_content = clean_llm_tokens(translated_content)  # Clean LLM tokens
 
             # Validate content quality
-            if not validate_content_quality(translated_content, min_length=100):
+            if not validate_content_quality(translated_content, min_length=300):
                 raise Exception("Translation content quality validation failed")
 
             # Check length (95% threshold to allow for minor differences)
