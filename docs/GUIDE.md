@@ -335,7 +335,7 @@ python3 main.py "API testing tools" --content-type basic_articles
 - FAQ разделы с `<details><summary>`
 - Нумерованные источники [1]-[5]
 - 10-20 внешних ссылок
-- 14 этапов пайплайна
+- 12 этапов пайплайна + WordPress (опционально)
 
 #### guides
 Пошаговые руководства и туториалы.

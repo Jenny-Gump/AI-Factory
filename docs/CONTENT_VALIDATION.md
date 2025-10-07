@@ -116,15 +116,25 @@ if entropy < 2.5:
 bigrams = [content[i:i+2] for i in range(len(content)-1)]
 unique_ratio = len(set(bigrams)) / len(bigrams)
 
-if unique_ratio < 0.15:  # 15% threshold
+if unique_ratio < 0.02:  # 2% threshold
     return False, f"repetitive_bigrams ({unique_ratio:.2%})"
 ```
 
-**Threshold**: <15% unique bigrams
+**Threshold**: <2% unique bigrams (updated October 7, 2025)
 
 **Защищает от**:
-- Короткие циклы как `"-о-о-о-"` (которые пропускал старый regex)
-- Однообразные HTML тэги (порог снижен с 30% до 15% для избежания false positives)
+- Короткие циклы как `"-о-о-о-"` (0.20% unique bigrams)
+- Spam паттерны типа `"ююю-ЯЗЯК"` (1.06% unique bigrams)
+- Повторяющиеся символы `"ююююю"` (0.17% unique bigrams)
+
+**Пропускает**:
+- Легитимный контент длиной 5000+ chars (10-15% unique bigrams)
+- Качественные статьи с разнообразным текстом
+
+**История порога**:
+- v1.0: 30% (слишком строго, false positives на HTML)
+- v2.0: 15% (false positives на длинных текстах >5000 chars)
+- v3.1: 2% (оптимально - блокирует спам, пропускает легитим)
 
 #### Уровень 4: Word Density - Лексическая структура
 
@@ -370,7 +380,7 @@ success, reason = validate_content_quality_v3(content, target_language='en')
 - ✅ Handles MAX_TOKENS spam (finish_reason validation)
 - ✅ Detects fake words in 5 languages (cyrillic/latin checks)
 - ✅ Rejects wrong language content (RU→EN, EN→RU, etc.)
-- ✅ Lower false positive rate (15% bigram threshold vs 30%)
+- ✅ Lower false positive rate (2% bigram threshold optimized for long texts)
 - ✅ Scientific foundation (cited research papers)
 - ✅ Zero external dependencies (all built-in Python)
 - ✅ Selective application: только этапы 8, 9, 12 (избегает false positives на JSON)

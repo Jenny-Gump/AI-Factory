@@ -130,10 +130,11 @@ def validate_content_quality_v3(content: str, min_length: int = 300,
         if bigrams:
             unique_ratio = len(set(bigrams)) / len(bigrams)
 
-            # Если <15% биграмм уникальны - сильное зацикливание
-            # Порог снижен с 30% до 15% чтобы избежать false positives на HTML-контенте
-            if unique_ratio < 0.15:
-                logger.warning(f"Validation failed: repetitive bigrams {unique_ratio:.2%} unique (threshold: 15%)")
+            # Если <2% биграмм уникальны - сильное зацикливание (спам о-о-о, н-н-н)
+            # Порог снижен с 15% до 2% на основе анализа реального спама и легитимного контента
+            # Спам: 0.17-1.06% unique bigrams | Легитим: 10%+ unique bigrams
+            if unique_ratio < 0.02:
+                logger.warning(f"Validation failed: repetitive bigrams {unique_ratio:.2%} unique (threshold: 2%)")
                 return False, f"repetitive_bigrams ({unique_ratio:.2%})"
     except Exception as e:
         logger.warning(f"Bigram check failed: {e}")
@@ -811,11 +812,19 @@ def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages
     for attempt in range(RETRY_CONFIG["max_attempts"]):
         try:
             client = get_llm_client(model_name)
+            provider = get_provider_for_model(model_name)
 
             # Handle Google's direct API
             if client == "google_direct":
                 response_obj = _make_google_direct_request(model_name, messages, **kwargs)
             else:
+                # Add provider preferences for OpenRouter
+                if provider == "openrouter":
+                    provider_config = LLM_PROVIDERS.get(provider, {})
+                    provider_prefs = provider_config.get("provider_preferences")
+                    if provider_prefs:
+                        kwargs["extra_body"] = {"provider": provider_prefs}
+
                 response_obj = client.chat.completions.create(
                     model=model_name,
                     messages=messages,

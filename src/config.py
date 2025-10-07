@@ -124,8 +124,11 @@ LLM_PROVIDERS = {
         ],
         "extra_headers": {
             "HTTP-Referer": "https://github.com/your-repo/content-generator",
-            "X-Title": "AI Content Generator",
-            "X-Provider-Preference": "deepinfra"
+            "X-Title": "AI Content Generator"
+        },
+        "provider_preferences": {
+            "order": ["DeepInfra"],
+            "allow_fallbacks": False
         }
     }
 }
