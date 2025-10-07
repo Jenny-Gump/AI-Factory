@@ -313,6 +313,24 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
 
         if ultimate_structure and ultimate_structure != []:
             logger.info(f"✅ Successfully created ultimate structure with {actual_model}")
+
+            # Normalize structure: handle both dict and list formats
+            if isinstance(ultimate_structure, list):
+                # LLM returned array instead of object - wrap it
+                logger.warning("⚠️ LLM returned array instead of object with article_structure - normalizing")
+                ultimate_structure = {
+                    "article_structure": ultimate_structure,
+                    "writing_guidelines": {}
+                }
+            elif isinstance(ultimate_structure, dict):
+                # Check if it has expected keys
+                if "article_structure" not in ultimate_structure:
+                    logger.warning("⚠️ Missing 'article_structure' key - treating as sections array")
+                    ultimate_structure = {
+                        "article_structure": ultimate_structure.get("sections", [ultimate_structure]),
+                        "writing_guidelines": ultimate_structure.get("writing_guidelines", {})
+                    }
+
             save_artifact(ultimate_structure, paths["ultimate_structure"], "ultimate_structure.json")
         else:
             logger.error("Failed to parse JSON from create_structure response")
@@ -327,7 +345,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         return
 
     # --- Этап 9: Генерация WordPress статьи по секциям ---
-    total_sections = len(ultimate_structure.get("sections", []))
+    total_sections = len(ultimate_structure.get("article_structure", {}).get("sections", []))
     logger.info("═" * 67)
     logger.info(f" ЭТАП 9: Генерация статьи ({total_sections} секций)")
     logger.info("═" * 67)
