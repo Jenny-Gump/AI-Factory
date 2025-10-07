@@ -152,6 +152,9 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         os.makedirs(path, exist_ok=True)
 
     # --- Этапы 1-6: Поиск, парсинг, очистка ---
+    logger.info("═" * 67)
+    logger.info(" ЭТАП 1-6: Поиск, парсинг, очистка источников")
+    logger.info("═" * 67)
     firecrawl_client = FirecrawlClient()
 
     search_results = await firecrawl_client.search(topic)
@@ -194,6 +197,9 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     save_artifact(cleaned_sources, paths["cleaning"], "final_cleaned_sources.json")
 
     # --- Этап 7: Извлечение структур (ПАРАЛЛЕЛЬНО) ---
+    logger.info("═" * 67)
+    logger.info(f" ЭТАП 7: Извлечение структур ({len(cleaned_sources)} источников)")
+    logger.info("═" * 67)
     logger.info(f"Starting PARALLEL structure extraction from {len(cleaned_sources)} sources...")
 
     def extract_all_structures():
@@ -270,6 +276,9 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         return
 
     # --- Этап 8: Создание ультимативной структуры ---
+    logger.info("═" * 67)
+    logger.info(f" ЭТАП 8: Создание ультимативной структуры ({len(all_structures)} структур)")
+    logger.info("═" * 67)
     logger.info("Creating ultimate structure from extracted structures...")
 
     messages = _load_and_prepare_messages(
@@ -341,6 +350,10 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         return
 
     # --- Этап 9: Генерация WordPress статьи по секциям ---
+    total_sections = len(ultimate_structure.get("sections", []))
+    logger.info("═" * 67)
+    logger.info(f" ЭТАП 9: Генерация статьи ({total_sections} секций)")
+    logger.info("═" * 67)
     logger.info("Generating WordPress-ready article from ultimate structure (section by section)...")
 
     # NEW: Use section-by-section generation
@@ -367,8 +380,11 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.error("No generated sections found for processing. Exiting.")
         return
 
-    # --- Этап 9: Translation по секциям ---
+    # --- Этап 10: Translation по секциям ---
     target_language = variables_manager.active_variables.get("language") if variables_manager else "русский"
+    logger.info("═" * 67)
+    logger.info(f" ЭТАП 10: Перевод секций ({len(generated_sections)} секций → {target_language})")
+    logger.info("═" * 67)
     logger.info(f"🌍 Starting section-by-section translation to {target_language}...")
 
     translated_sections, translation_status = translate_sections(
@@ -393,7 +409,10 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     # Save translated sections for reference
     save_artifact({"sections": translated_sections}, paths["translation"], "translated_sections.json")
 
-    # --- Этап 10: Fact-checking секций (на переведенном тексте) ---
+    # --- Этап 11: Fact-checking секций (на переведенном тексте) ---
+    logger.info("═" * 67)
+    logger.info(f" ЭТАП 11: Fact-checking ({len(translated_sections)} секций)")
+    logger.info("═" * 67)
 
     # Check fact-check mode from variables
     fact_check_mode = "on"  # Default
@@ -475,7 +494,10 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.info(f"✅ Fact-checking passed: All {fact_check_status.get('total_groups', 0)} groups verified")
         logger.info(f"Fact-checking completed: Combined content length: {len(fact_checked_content)} characters")
 
-    # --- Этап 11: Link Placement (на переведенном и fact-checked тексте) ---
+    # --- Этап 12: Link Placement (на переведенном и fact-checked тексте) ---
+    logger.info("═" * 67)
+    logger.info(f" ЭТАП 12: Link Placement ({len(translated_sections)} секций)")
+    logger.info("═" * 67)
     link_placement_mode = variables_manager.active_variables.get("link_placement_mode", "on") if variables_manager else "on"
 
     if link_placement_mode == "off":
@@ -512,7 +534,10 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
 
         logger.info(f"✅ Link placement completed: {len(content_with_links)} chars")
 
-    # --- Этап 12: Editorial Review ---
+    # --- Этап 13: Editorial Review ---
+    logger.info("═" * 67)
+    logger.info(" ЭТАП 13: Editorial Review (финальная обработка)")
+    logger.info("═" * 67)
     logger.info("Starting editorial review and cleanup...")
 
     # Prepare content for editorial review
@@ -550,6 +575,9 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
 
     # --- Этап 14 (опциональный): WordPress Publication ---
     if publish_to_wordpress:
+        logger.info("═" * 67)
+        logger.info(" ЭТАП 14: WordPress Publication")
+        logger.info("═" * 67)
         logger.info("Starting WordPress publication...")
         try:
             wp_publisher = WordPressPublisher()
@@ -636,7 +664,9 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         variables_manager = VariablesManager()
 
     if stage == "fact_check":
-        logger.info("=== Starting Fact-Check Stage ===")
+        logger.info("═" * 67)
+        logger.info(" ЭТАП 11: Fact-checking (запуск с этапа)")
+        logger.info("═" * 67)
 
         # Load translated_sections from 09_translation
         translated_sections_path = os.path.join(paths["translation"], "translated_sections.json")
@@ -683,7 +713,9 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
 
     elif stage == "link_placement":
-        logger.info("=== Starting Link Placement Stage ===")
+        logger.info("═" * 67)
+        logger.info(" ЭТАП 12: Link Placement (запуск с этапа)")
+        logger.info("═" * 67)
 
         # Load translated_sections from 09_translation
         translated_sections_path = os.path.join(paths["translation"], "translated_sections.json")
@@ -730,7 +762,9 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
 
     elif stage == "translation":
-        logger.info("=== Starting Translation Stage ===")
+        logger.info("═" * 67)
+        logger.info(" ЭТАП 10: Перевод секций (запуск с этапа)")
+        logger.info("═" * 67)
 
         # Get target language (default to русский if not specified)
         target_language = variables_manager.active_variables.get("language") if variables_manager else "русский"
@@ -780,7 +814,9 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
 
     elif stage == "editorial_review":
-        logger.info("=== Starting Editorial Review Stage ===")
+        logger.info("═" * 67)
+        logger.info(" ЭТАП 13: Editorial Review (запуск с этапа)")
+        logger.info("═" * 67)
 
         # Try to load content in correct order: link_placement → fact_check → translation
         # (Order matters: link_placement is latest, then fact_check, then translation)
@@ -852,7 +888,9 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
 
     elif stage == "publication":
-        logger.info("=== Starting WordPress Publication Stage ===")
+        logger.info("═" * 67)
+        logger.info(" ЭТАП 14: WordPress Publication (запуск с этапа)")
+        logger.info("═" * 67)
 
         # Загрузить готовый wordpress_data_final.json
         wordpress_data_path = os.path.join(paths["editorial_review"], "wordpress_data_final.json")

@@ -55,7 +55,7 @@ LLM_MODELS = {
     "generate_article": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for WordPress article generation
     "fact_check": "gemini-2.5-flash-preview-09-2025",                   # Google Gemini 2.5 Flash (Sept 2025) with native web search for fact-checking
     "link_placement": "gemini-2.5-flash-preview-09-2025",               # Google Gemini 2.5 Flash (Sept 2025) with native web search for finding relevant links
-    "translation": "deepseek/deepseek-chat-v3.1:free",                  # FREE Model for content translation
+    "translation": "google/gemini-2.0-flash-exp:free",                  # TEMPORARY: Testing Gemini 2.0 Flash Exp for translation
     "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model like other stages
 }
 
@@ -67,7 +67,7 @@ FALLBACK_MODELS = {
     "fact_check": "gemini-2.5-flash",                                   # Stable Gemini 2.5 Flash with web search
     "link_placement": "gemini-2.5-flash",                               # Stable Gemini 2.5 Flash with web search
     "translation": "google/gemini-2.5-flash-lite-preview-06-17",        # Fallback to Gemini 2.5
-    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",  # Fallback to Gemini like other stages
+    "editorial_review": "deepseek-reasoner",  # Direct DeepSeek API fallback with reasoning mode
 }
 
 # Retry configuration for LLM requests
@@ -116,6 +116,7 @@ LLM_PROVIDERS = {
             "openai/gpt-3.5-turbo",
             "google/gemini-2.0-flash-001",
             "google/gemini-2.5-flash-lite-preview-06-17",
+            "google/gemini-2.0-flash-exp:free",
             "deepseek/deepseek-chat-v3.1:free",
             "perplexity/sonar-reasoning-pro",
             "perplexity/sonar-reasoning-pro:online",

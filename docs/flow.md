@@ -456,7 +456,7 @@ This document provides a detailed, step-by-step breakdown of the complete 12-sta
       "content": "<h2>Introduction</h2><p>Translated content...</p>",
       "status": "translated",
       "original_content": "Оригинальный контент...",
-      "translation_model": "deepseek/deepseek-chat-v3.1:free",
+      "translation_model": "google/gemini-2.0-flash-exp:free",
       "target_language": "english"
     }
   ]
@@ -604,7 +604,7 @@ This document provides a detailed, step-by-step breakdown of the complete 12-sta
 **ФУНКЦИИ:**
 - `src/llm_processing.py` → `editorial_review()` - главная функция редакторской обработки с продвинутой retry системой
 - FREE DeepSeek с низкой температурой (0.2) для стабильного редактирования
-- 🆕 **Продвинутая retry система:** 3 попытки primary модели → fallback на Gemini 2.5 → 3 попытки fallback
+- 🆕 **Продвинутая retry система:** 3 попытки primary модели → fallback на DeepSeek Reasoner → 3 попытки fallback
 - 🆕 **4-уровневая JSON нормализация:** Direct parsing → Escaping fixes → Block extraction → Incomplete JSON repair
 - 🆕 **Исправление переносов строк:** Автоматическое исправление `\\n` → реальные переносы для WordPress
 - **Упрощенная валидация:** Только проверка длины ≥ 100 символов (контент уже проверен на этапах 8-11)

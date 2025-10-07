@@ -41,7 +41,7 @@ LLM_MODELS = {
     "generate_article": "deepseek/deepseek-chat-v3.1:free",             # FREE Model для генерации статей
     "fact_check": "gemini-2.5-flash-preview-09-2025",                   # Google Gemini с нативным веб-поиском
     "link_placement": "gemini-2.5-flash-preview-09-2025",               # Google Gemini с нативным веб-поиском для поиска ссылок
-    "translation": "deepseek/deepseek-chat-v3.1:free",                  # FREE Model для перевода контента
+    "translation": "google/gemini-2.0-flash-exp:free",                  # TEMPORARY: Testing Gemini 2.0 Flash Exp for translation
     "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model для редакторской правки
 }
 ```
@@ -55,8 +55,38 @@ FALLBACK_MODELS = {
     "fact_check": "gemini-2.5-flash",                                   # Stable Gemini 2.5 Flash with web search
     "link_placement": "gemini-2.5-flash",                               # Stable Gemini 2.5 Flash with web search
     "translation": "google/gemini-2.5-flash-lite-preview-06-17",        # Fallback для перевода
-    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",
+    "editorial_review": "deepseek-reasoner",  # Direct DeepSeek API fallback with reasoning mode
 }
+```
+
+### Provider Preferences для DeepSeek (OpenRouter):
+
+**ВАЖНО**: Эта настройка применяется ТОЛЬКО для DeepSeek FREE моделей через OpenRouter.
+
+```python
+# В src/config.py (строки 130-133)
+"provider_preferences": {
+    "order": ["DeepInfra"],      # Приоритет роутинга на DeepInfra
+    "allow_fallbacks": False     # Запретить fallback на другие провайдеры
+}
+```
+
+**Как работает:**
+- Применяется автоматически для всех DeepSeek моделей (проверка в `src/llm_processing.py:824-831`)
+- Гарантирует routing запросов через DeepInfra провайдер
+- Предотвращает fallback на альтернативные провайдеры OpenRouter
+- Для других моделей (Gemini, GPT) эта настройка НЕ применяется
+
+**Логика применения:**
+```python
+# src/llm_processing.py (строки 822-831)
+if provider == "openrouter":
+    # Apply provider preferences ONLY for DeepSeek models
+    if "deepseek" in model_name.lower():
+        provider_config = LLM_PROVIDERS.get(provider, {})
+        provider_prefs = provider_config.get("provider_preferences")
+        if provider_prefs:
+            kwargs["extra_body"] = {"provider": provider_prefs}
 ```
 
 ##  Параметры производительности

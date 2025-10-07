@@ -818,13 +818,20 @@ def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages
             if client == "google_direct":
                 response_obj = _make_google_direct_request(model_name, messages, **kwargs)
             else:
-                # Add provider preferences for OpenRouter
+                # Add provider preferences for OpenRouter (ONLY for DeepSeek models)
                 if provider == "openrouter":
-                    provider_config = LLM_PROVIDERS.get(provider, {})
-                    provider_prefs = provider_config.get("provider_preferences")
-                    if provider_prefs:
-                        kwargs["extra_body"] = {"provider": provider_prefs}
+                    # Apply provider preferences ONLY for DeepSeek models
+                    if "deepseek" in model_name.lower():
+                        provider_config = LLM_PROVIDERS.get(provider, {})
+                        provider_prefs = provider_config.get("provider_preferences")
+                        if provider_prefs:
+                            kwargs["extra_body"] = {"provider": provider_prefs}
+                            logger.info(f"🔧 Applying provider preferences for {model_name}: {provider_prefs}")
+                    else:
+                        logger.info(f"🔧 Skipping provider preferences for non-DeepSeek model: {model_name}")
 
+                logger.info(f"🔧 API call kwargs keys: {list(kwargs.keys())}")
+                logger.info(f"🔧 API call kwargs full: {kwargs}")
                 response_obj = client.chat.completions.create(
                     model=model_name,
                     messages=messages,
@@ -862,38 +869,8 @@ def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages
                 logger.warning(f"⚠️ API returned empty content (attempt {attempt + 1})")
                 raise Exception(f"Empty response from model on attempt {attempt + 1}")
 
-            # DEBUG: Log response content size in retry function
-            logger.info(f"🔍 RETRY FUNCTION RAW_RESPONSE: {len(raw_response_content)} chars")
-
-            # Сохраняем текстовую версию тоже
-            if base_path:
-                try:
-                    responses_dir = os.path.join(base_path, "llm_responses_raw")
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    response_file = os.path.join(responses_dir, f"{stage_name}_response_attempt{attempt+1}_{timestamp}.txt")
-
-                    with open(response_file, 'w', encoding='utf-8') as f:
-                        f.write(f"TIMESTAMP: {datetime.now().isoformat()}\n")
-                        f.write(f"MODEL: {model_name}\n")
-                        f.write(f"STAGE: {stage_name}\n")
-                        f.write(f"ATTEMPT: {attempt + 1}\n")
-                        f.write(f"RESPONSE_LENGTH: {len(raw_response_content)}\n")
-                        f.write(f"SUCCESS: True\n")
-                        f.write("=" * 80 + "\n")
-                        f.write(raw_response_content)
-                    logger.info(f"💾 RAW RESPONSE TEXT SAVED: {response_file}")
-                except Exception as save_error:
-                    logger.error(f"❌ Failed to save raw response text: {save_error}")
-
-            # Диагностика ответа API
+            # Get finish_reason for validation
             finish_reason = response_obj.choices[0].finish_reason
-            content_length = len(raw_response_content)
-            logger.info(f"🔍 API Response Debug:")
-            logger.info(f"   finish_reason: {finish_reason}")
-            logger.info(f"   content_length: {content_length}")
-            logger.info(f"   usage: {response_obj.usage}")
-            if hasattr(response_obj.choices[0], 'logprobs'):
-                logger.info(f"   logprobs: {response_obj.choices[0].logprobs}")
 
             # КРИТИЧЕСКАЯ ВАЛИДАЦИЯ: v3.0 только для этапов 8, 9
             # Этапы: generate_article (8), translation (9)
@@ -919,8 +896,25 @@ def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages
                     logger.warning(f"⚠️ Content too short (attempt {attempt + 1}): {len(raw_response_content)} chars")
                     raise Exception(f"Content too short: {len(raw_response_content)} chars")
 
-            # Log successful model usage
-            logger.info(f"✅ Model {model_name} responded successfully (attempt {attempt + 1})")
+            # Validation passed - save response with SUCCESS flag
+            if base_path:
+                try:
+                    responses_dir = os.path.join(base_path, "llm_responses_raw")
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    response_file = os.path.join(responses_dir, f"{stage_name}_response_attempt{attempt+1}_{timestamp}.txt")
+
+                    with open(response_file, 'w', encoding='utf-8') as f:
+                        f.write(f"TIMESTAMP: {datetime.now().isoformat()}\n")
+                        f.write(f"MODEL: {model_name}\n")
+                        f.write(f"STAGE: {stage_name}\n")
+                        f.write(f"ATTEMPT: {attempt + 1}\n")
+                        f.write(f"RESPONSE_LENGTH: {len(raw_response_content)}\n")
+                        f.write(f"VALIDATION: PASSED\n")
+                        f.write(f"SUCCESS: True\n")
+                        f.write("=" * 80 + "\n")
+                        f.write(raw_response_content)
+                except Exception as save_error:
+                    logger.error(f"❌ Failed to save validated response: {save_error}")
 
             # Track token usage with actual model info
             if token_tracker and response_obj.usage:
@@ -1247,7 +1241,6 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
             ready_sections = "Это первый раздел статьи."
         else:
             # Накапливаем все предыдущие разделы ПОЛНОСТЬЮ
-            logger.info(f"📚 Preparing context from {len(generated_sections)} previous sections")
             ready_sections_parts = []
             for prev_section in generated_sections:
                 if prev_section.get("status") == "success" and prev_section.get("content"):
@@ -1256,13 +1249,11 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                     ready_sections_parts.append(f"РАЗДЕЛ: {prev_title}\n{prev_content}")
 
             ready_sections = "\n\n".join(ready_sections_parts) if ready_sections_parts else "Предыдущие разделы недоступны."
-            logger.info(f"📚 Context prepared: {len(ready_sections)} characters from {len(ready_sections_parts)} sections")
-
-        logger.info(f"📝 Generating section {idx}/{total_sections}: {section_title}")
 
         for attempt in range(1, SECTION_MAX_RETRIES + 1):
             try:
-                logger.info(f"🔄 Section {idx} attempt {attempt}/{SECTION_MAX_RETRIES}: {section_title}")
+                if attempt > 1:
+                    logger.info(f"🔄 Retry attempt {attempt}/{SECTION_MAX_RETRIES} for section {idx}")
 
                 # Prepare section-specific prompt with ready_sections context
                 messages = _load_and_prepare_messages(
@@ -1279,9 +1270,10 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                 )
 
                 # Make SYNCHRONOUS request
+                current_model = model_name or LLM_MODELS.get("generate_article", DEFAULT_MODEL)
                 response_obj, actual_model = _make_llm_request_with_retry_sync(
                     stage_name="generate_article",
-                    model_name=model_name or LLM_MODELS.get("generate_article", DEFAULT_MODEL),
+                    model_name=current_model,
                     messages=messages,
                     token_tracker=token_tracker,
                     base_path=section_path,
@@ -1310,7 +1302,9 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                         }
                     )
 
-                logger.info(f"✅ Successfully generated section {idx}/{total_sections}: {section_title}")
+                # Compact success log
+                char_count = len(section_content)
+                logger.info(f"Section {idx}/{total_sections}: {section_title}... ✅ ({char_count} chars)")
 
                 result = {
                     "section_num": idx,
@@ -1321,7 +1315,6 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                 }
 
                 generated_sections.append(result)
-                logger.info(f"📚 Section {idx} added to context for next sections")
                 break  # Success, exit retry loop
 
             except Exception as e:
@@ -2054,7 +2047,7 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
                     "token_tracker": token_tracker,
                     "base_path": base_path,
                     "temperature": 0.2,
-                    "response_format": {"type": "json_object"} if not current_model.startswith("perplexity/") else None
+                    "response_format": {"type": "json_object"}
                 }
 
                 # Make LLM request (this handles its own retries internally)
@@ -2105,17 +2098,100 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
     )
 
 
+def _repair_json_control_chars(text: str) -> str:
+    """
+    Universal JSON repair: escapes control characters ONLY within string values.
+
+    Uses state machine to track context (inside/outside JSON strings).
+
+    Handles:
+    - Unescaped newlines, tabs, carriage returns in string values
+    - Preserves legitimate newlines between JSON fields
+    - Doesn't double-escape already-escaped sequences
+    - Works with any broken JSON from any LLM model
+
+    Args:
+        text: Potentially broken JSON string
+
+    Returns:
+        Repaired JSON string with properly escaped control characters
+    """
+    result = []
+    i = 0
+    in_string = False
+
+    while i < len(text):
+        char = text[i]
+
+        # Preserve already-escaped sequences (e.g., \n, \", \\)
+        if char == '\\' and i + 1 < len(text):
+            result.append(char)
+            result.append(text[i + 1])
+            i += 2
+            continue
+
+        # Track string boundaries with double quotes
+        if char == '"':
+            in_string = not in_string
+            result.append(char)
+            i += 1
+            continue
+
+        # Escape control chars ONLY when inside a string value
+        if in_string and ord(char) < 32:
+            if char == '\n':
+                result.append('\\n')
+            elif char == '\r':
+                result.append('\\r')
+            elif char == '\t':
+                result.append('\\t')
+            else:
+                # Other control chars - use unicode escape
+                result.append(f'\\u{ord(char):04x}')
+        else:
+            # Outside strings or not a control char - keep as-is
+            result.append(char)
+
+        i += 1
+
+    return ''.join(result)
+
+
 def _try_parse_editorial_json(response: str, model_name: str, attempt: int, model_label: str) -> Dict[str, Any]:
     """
-    Attempts to parse JSON from editorial review response with 4 normalization attempts.
+    Attempts to parse JSON from editorial review response with enhanced normalization.
 
     Returns:
         Parsed JSON dict if successful, None if failed
     """
     logger.info(f"🔍 Parsing JSON from {model_label} model (attempt {attempt})...")
+    import re
 
-    # Attempt 1: Direct parsing
+    # Attempt 0: Universal repair (markdown + control chars)
     try:
+        logger.info("🛠️ Attempt 0: Universal JSON repair...")
+        cleaned_response = response.strip()
+
+        # Step 1: Remove everything BEFORE first { and AFTER last }
+        cleaned_response = re.sub(r'^.*?({)', r'\1', cleaned_response, flags=re.DOTALL)
+        cleaned_response = re.sub(r'(})[^}]*$', r'\1', cleaned_response, flags=re.DOTALL)
+        logger.debug(f"After markdown removal: {len(cleaned_response)} chars")
+
+        # Step 2: Repair control characters (universal state-machine approach)
+        repaired_response = _repair_json_control_chars(cleaned_response)
+        logger.debug(f"After control char repair: {len(repaired_response)} chars")
+        logger.debug(f"First 200 chars: {repaired_response[:200]}")
+
+        parsed = json.loads(repaired_response)
+        logger.info("✅ Attempt 0: Universal repair successful")
+        return parsed
+
+    except json.JSONDecodeError as e:
+        logger.info(f"❌ Attempt 0 failed: {e}")
+
+    # Attempt 1: Direct parsing with basic cleanup
+    try:
+        logger.info("🛠️ Attempt 1: Direct parsing with basic cleanup...")
         cleaned_response = response.strip()
 
         # Special handling for Gemini models
@@ -2128,55 +2204,59 @@ def _try_parse_editorial_json(response: str, model_name: str, attempt: int, mode
             if cleaned_response.endswith('```'):
                 cleaned_response = cleaned_response[:-3]
         else:
-            # Standard cleanup
-            if cleaned_response.startswith('```json'):
-                cleaned_response = cleaned_response[7:]
-            if cleaned_response.endswith('```'):
-                cleaned_response = cleaned_response[:-3]
+            # Standard cleanup with regex to handle newlines
+            cleaned_response = re.sub(r'^```json\s*', '', cleaned_response)
+            cleaned_response = re.sub(r'\s*```$', '', cleaned_response)
 
         cleaned_response = cleaned_response.strip()
+        logger.debug(f"After basic cleanup: {len(cleaned_response)} chars")
+
         parsed = json.loads(cleaned_response)
         logger.info("✅ Direct JSON parsing successful")
         return parsed
 
     except json.JSONDecodeError as e:
-        logger.info(f"❌ Direct parsing failed: {e}")
+        logger.info(f"❌ Attempt 1 failed: {e}")
 
     # Attempts 2-4: Enhanced normalization
-    import re
-
-    for cleanup_attempt in range(1, 4):
-        logger.info(f"🛠️ JSON normalization attempt {cleanup_attempt}/3...")
+    for cleanup_attempt in range(2, 5):
+        logger.info(f"🛠️ Attempt {cleanup_attempt}: Enhanced normalization...")
 
         try:
-            if cleanup_attempt == 1:
+            if cleanup_attempt == 2:
                 # Fix common escaping issues
                 fixed_response = response.strip()
                 fixed_response = re.sub(r'\\\\"', '"', fixed_response)
                 fixed_response = re.sub(r'class="([^"]*)"', r"class='\1'", fixed_response)
                 fixed_response = re.sub(r'language-([^"]*)"', r"language-\1'", fixed_response)
-
-            elif cleanup_attempt == 2:
-                # Extract JSON block
-                json_match = re.search(r'\{.*\}', response, re.DOTALL)
-                if not json_match:
-                    continue
-                fixed_response = json_match.group(0)
+                logger.debug(f"After escaping fixes: {len(fixed_response)} chars")
 
             elif cleanup_attempt == 3:
+                # Extract JSON block with regex
+                json_match = re.search(r'\{.*\}', response, re.DOTALL)
+                if not json_match:
+                    logger.info("❌ No JSON block found with regex")
+                    continue
+                fixed_response = json_match.group(0)
+                logger.debug(f"After regex extraction: {len(fixed_response)} chars")
+                logger.debug(f"First 200 chars: {fixed_response[:200]}")
+
+            elif cleanup_attempt == 4:
                 # Fix incomplete JSON
                 fixed_response = response.strip()
                 brace_count = fixed_response.count('{') - fixed_response.count('}')
                 if brace_count > 0:
                     fixed_response += '}' * brace_count
+                    logger.debug(f"Added {brace_count} closing braces")
+                logger.debug(f"After brace fix: {len(fixed_response)} chars")
 
             # Try parsing
             parsed = json.loads(fixed_response)
-            logger.info(f"✅ JSON normalization attempt {cleanup_attempt} successful")
+            logger.info(f"✅ Attempt {cleanup_attempt} successful")
             return parsed
 
-        except json.JSONDecodeError:
-            logger.info(f"❌ Normalization attempt {cleanup_attempt} failed")
+        except json.JSONDecodeError as e:
+            logger.info(f"❌ Attempt {cleanup_attempt} failed: {e}")
             continue
 
     # All normalization attempts failed
@@ -2535,8 +2615,6 @@ def translate_sections(sections: List[Dict], target_language: str, topic: str, b
         section_title = section.get("section_title", f"Section {section_num}")
         section_content = section.get("content", "")
 
-        logger.info(f"🌍 Translating section {section_num}: {section_title}")
-
         # Create section-specific path
         section_path = os.path.join(base_path, f"section_{section_num}") if base_path else None
         if section_path:
@@ -2544,8 +2622,6 @@ def translate_sections(sections: List[Dict], target_language: str, topic: str, b
 
         # Retry and fallback handled inside _make_llm_request_with_retry
         try:
-            logger.info(f"🔄 Section {section_num} | Starting translation")
-
             # Prepare messages for section translation
             messages = _load_and_prepare_messages(
                 content_type,
@@ -2560,10 +2636,11 @@ def translate_sections(sections: List[Dict], target_language: str, topic: str, b
             )
 
             # Make translation request
+            current_model = model_name or LLM_MODELS.get("translation")
             # Retry (3 attempts) + Fallback (3 attempts) = 6 total attempts handled inside
             response_obj, actual_model = _make_llm_request_with_retry(
                 stage_name=f"translation_section_{section_num}",
-                model_name=model_name or LLM_MODELS.get("translation"),
+                model_name=current_model,
                 messages=messages,
                 token_tracker=token_tracker,
                 base_path=section_path,
@@ -2587,7 +2664,8 @@ def translate_sections(sections: List[Dict], target_language: str, topic: str, b
                 logger.warning(f"⚠️ Section {section_num} translation too long: {translated_length} chars > 125% of {original_length} ({translated_length/original_length*100:.1f}%)")
                 raise Exception(f"Section {section_num} translation too long: {translated_length} chars > 125% of {original_length}")
 
-            logger.info(f"✅ Section {section_num} | Model responded ({actual_model}, {translated_length} chars, {translated_length/original_length*100:.1f}% of original)")
+            # Compact success log
+            logger.info(f"Section {section_num}/{len(successful_sections)}: {section_title}... ✅ ({translated_length} chars, {translated_length/original_length*100:.0f}%)")
 
             # Save interaction
             if section_path:

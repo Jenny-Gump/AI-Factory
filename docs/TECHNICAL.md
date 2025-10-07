@@ -56,7 +56,7 @@ LLM_MODELS = {
     "generate_article": "deepseek/deepseek-chat-v3.1:free",
     "fact_check": "gemini-2.5-flash-preview-09-2025",  # Native web search
     "link_placement": "gemini-2.5-flash-preview-09-2025",  # Native web search
-    "translation": "deepseek/deepseek-chat-v3.1:free",
+    "translation": "google/gemini-2.0-flash-exp:free",  # TEMPORARY: Testing Gemini 2.0 Flash Exp
     "editorial_review": "deepseek/deepseek-chat-v3.1:free",
 }
 ```
@@ -73,7 +73,7 @@ FALLBACK_MODELS = {
     "fact_check": "gemini-2.5-flash",  # Stable Gemini 2.5 Flash with web search
     "link_placement": "gemini-2.5-flash",  # Stable Gemini 2.5 Flash with web search
     "translation": "google/gemini-2.5-flash-lite-preview-06-17",
-    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",
+    "editorial_review": "deepseek-reasoner",  # Direct DeepSeek API fallback with reasoning mode
 }
 ```
 
@@ -259,7 +259,7 @@ content = "".join(content_parts)
     "content": "Translated content...",
     "status": "translated",
     "original_content": "Исходный контент...",
-    "translation_model": "deepseek/deepseek-chat-v3.1:free",
+    "translation_model": "google/gemini-2.0-flash-exp:free",
     "target_language": "english"
 }
 ```
@@ -350,7 +350,7 @@ LLM модели возвращают разные форматы данных �
         "content": "Translated content...",
         "status": "translated",
         "original_content": "Исходный контент...",
-        "translation_model": "deepseek/deepseek-chat-v3.1:free",
+        "translation_model": "google/gemini-2.0-flash-exp:free",
         "target_language": "english"
     }
 ]
