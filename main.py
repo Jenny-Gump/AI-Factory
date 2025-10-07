@@ -16,9 +16,10 @@ from src.processing import (
 from src.llm_processing import (
     extract_prompts_from_article,
     generate_article_by_sections,  # NEW: for section-by-section generation
+    translate_sections,  # NEW: for section-by-section translation
     fact_check_sections,  # NEW: for fact-checking individual sections
     place_links_in_sections,  # NEW: for placing relevant links in content
-    translate_content,  # NEW: for translating content to target language
+    translate_content,  # OLD: for translating full content (kept for backward compatibility)
     editorial_review,
     _load_and_prepare_messages,
     _make_llm_request_with_retry,
@@ -104,10 +105,10 @@ def save_html_with_proper_newlines(content: str, path: str, filename: str):
 async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True, content_type: str = "basic_articles",
                                   verbose: bool = False, variables_manager=None):
     """
-    Full 14-stage pipeline for generating high-quality articles with FAQ, fact-checking, links, and translation.
+    Full 12-stage pipeline for generating high-quality articles with translation, fact-checking, and links.
 
-    Этапы: 1-6 поиск/очистка → 7 структуры → 8 ультимативная → 9 генерация →
-           10 факт-чек → 11 link placement → 12 translation → 13 редактура → 14 публикация
+    Этапы: 1-6 поиск/очистка → 7 структуры → 8 ультимативная →
+           08 генерация → 09 translation (посекционный) → 10 факт-чек → 11 link placement → 12 редактура
 
     Args:
         topic: Topic for content generation
@@ -142,9 +143,9 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         "structure_extraction": os.path.join(base_output_path, "06_structure_extraction"),
         "ultimate_structure": os.path.join(base_output_path, "07_ultimate_structure"),
         "final_article": os.path.join(base_output_path, "08_article_generation"),
-        "fact_check": os.path.join(base_output_path, "09_fact_check"),
-        "link_placement": os.path.join(base_output_path, "10_link_placement"),
-        "translation": os.path.join(base_output_path, "11_translation"),
+        "translation": os.path.join(base_output_path, "09_translation"),        # MOVED from 11
+        "fact_check": os.path.join(base_output_path, "10_fact_check"),          # MOVED from 09
+        "link_placement": os.path.join(base_output_path, "11_link_placement"),  # MOVED from 10
         "editorial_review": os.path.join(base_output_path, "12_editorial_review"),
     }
     for path in paths.values():
@@ -356,51 +357,68 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     save_artifact(wordpress_data, paths["final_article"], "wordpress_data.json")
 
     if isinstance(wordpress_data, dict) and "raw_response" in wordpress_data:
-        logger.info(f"Generated article data ready for fact-checking")
+        logger.info(f"Generated article data ready for translation")
     else:
         logger.error("Invalid WordPress data structure returned")
         return
-
-    # --- Этап 10: Fact-checking секций ---
-
-    # Check fact-check mode from variables
-    fact_check_mode = "on"  # Default
-    if variables_manager:
-        fact_check_mode = variables_manager.active_variables.get("fact_check_mode", "on")
 
     generated_sections = wordpress_data.get("generated_sections", [])
     if not generated_sections:
         logger.error("No generated sections found for processing. Exiting.")
         return
 
+    # --- Этап 9: Translation по секциям ---
+    target_language = variables_manager.active_variables.get("language") if variables_manager else "русский"
+    logger.info(f"🌍 Starting section-by-section translation to {target_language}...")
+
+    translated_sections, translation_status = translate_sections(
+        sections=generated_sections,
+        target_language=target_language,
+        topic=topic,
+        base_path=paths["translation"],
+        token_tracker=token_tracker,
+        model_name=active_models.get("translation"),
+        content_type=content_type,
+        variables_manager=variables_manager
+    )
+
+    # Save translation status
+    save_artifact(translation_status, paths["translation"], "translation_status.json")
+
+    if not translation_status.get("success"):
+        logger.warning(f"⚠️ Translation completed with {len(translation_status['failed_sections'])} failures")
+    else:
+        logger.info(f"✅ All {translation_status['translated_sections']} sections translated successfully")
+
+    # Save translated sections for reference
+    save_artifact({"sections": translated_sections}, paths["translation"], "translated_sections.json")
+
+    # --- Этап 10: Fact-checking секций (на переведенном тексте) ---
+
+    # Check fact-check mode from variables
+    fact_check_mode = "on"  # Default
+    if variables_manager:
+        fact_check_mode = variables_manager.active_variables.get("fact_check_mode", "on")
+
     # Initialize variables to avoid scope issues
+    fact_checked_sections = translated_sections
     fact_checked_content = ""
-    merged_content = {}
 
     if fact_check_mode == "off":
-        logger.info("🚫 FACT-CHECKING DISABLED by user - skipping to editorial review")
+        logger.info("🚫 FACT-CHECKING DISABLED by user - merging translated sections")
 
-        # Create combined HTML content from sections for editor
+        # Create combined HTML content from translated sections
         combined_html = ""
-        for section in generated_sections:
+        for section in translated_sections:
             if section.get("content"):
                 combined_html += section["content"] + "\n\n"
 
         # Set fact_checked_content for bypass mode
         fact_checked_content = combined_html.strip()
 
-        # Prepare merged content structure for editorial review
-        merged_content = {
-            "title": f"Статья по теме: {topic}",
-            "content": fact_checked_content,
-            "excerpt": f"Автоматически сгенерированная статья на тему: {topic}",
-            "slug": topic.lower().replace(" ", "-")
-        }
-
         # Create fact_check directory and save bypass artifacts for consistency
         os.makedirs(paths["fact_check"], exist_ok=True)
         save_artifact({"content": fact_checked_content}, paths["fact_check"], "fact_checked_content.json")
-        save_artifact(merged_content, paths["fact_check"], "merged_fact_checked_content.json")
 
         # Create fake fact-check status for compatibility
         fact_check_status = {
@@ -413,17 +431,14 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         }
         save_artifact(fact_check_status, paths["fact_check"], "fact_check_status.json")
 
-        # Update wordpress_data for editorial review
-        wordpress_data["raw_response"] = json.dumps(merged_content, ensure_ascii=False)
-
-        logger.info(f"✅ Fact-checking bypassed: Combined {len(generated_sections)} sections ({len(fact_checked_content)} chars)")
+        logger.info(f"✅ Fact-checking bypassed: Combined {len(translated_sections)} sections ({len(fact_checked_content)} chars)")
 
     else:
-        logger.info("Starting grouped fact-checking of generated sections...")
+        logger.info("Starting grouped fact-checking of translated sections...")
 
         # Get combined fact-checked content and status
         fact_checked_content, fact_check_status = fact_check_sections(
-            sections=generated_sections,
+            sections=translated_sections,  # CHANGED: Use translated sections instead of generated
             topic=topic,
             base_path=paths["fact_check"],
             token_tracker=token_tracker,
@@ -458,22 +473,9 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.warning(f"{border}\n")
     else:
         logger.info(f"✅ Fact-checking passed: All {fact_check_status.get('total_groups', 0)} groups verified")
-
-        # Create merged content structure for compatibility with editorial review (only for enabled fact-check)
-        merged_content = {
-            "title": f"Статья по теме: {topic}",
-            "content": fact_checked_content,
-            "excerpt": f"Автоматически сгенерированная статья на тему: {topic}",
-            "slug": topic.lower().replace(" ", "-")
-        }
-        save_artifact(merged_content, paths["fact_check"], "merged_fact_checked_content.json")
-
-        # Update wordpress_data with fact-checked content
-        wordpress_data["raw_response"] = json.dumps(merged_content, ensure_ascii=False)
-
         logger.info(f"Fact-checking completed: Combined content length: {len(fact_checked_content)} characters")
 
-    # --- Этап 11: Link Placement ---
+    # --- Этап 11: Link Placement (на переведенном и fact-checked тексте) ---
     link_placement_mode = variables_manager.active_variables.get("link_placement_mode", "on") if variables_manager else "on"
 
     if link_placement_mode == "off":
@@ -484,10 +486,10 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         save_artifact({"skipped": True, "reason": "link_placement_mode=off"},
                      paths["link_placement"], "link_placement_status.json")
     else:
-        logger.info("🔗 Starting link placement in sections...")
+        logger.info("🔗 Starting link placement in translated sections...")
 
         content_with_links, link_placement_status = place_links_in_sections(
-            sections=generated_sections,
+            sections=translated_sections,  # CHANGED: Use translated sections
             topic=topic,
             base_path=paths["link_placement"],
             token_tracker=token_tracker,
@@ -508,51 +510,20 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         }
         save_artifact(merged_content_with_links, paths["link_placement"], "content_with_links.json")
 
-        # Update wordpress_data with content that has links
-        wordpress_data["raw_response"] = json.dumps(merged_content_with_links, ensure_ascii=False)
-
         logger.info(f"✅ Link placement completed: {len(content_with_links)} chars")
 
-    # --- Этап 12: Translation ---
-    target_language = variables_manager.active_variables.get("language") if variables_manager else "русский"
-    logger.info(f"🌍 Starting translation to {target_language}...")
+    # --- Этап 12: Editorial Review ---
+    logger.info("Starting editorial review and cleanup...")
 
-    # Extract content from wordpress_data
-    content_to_translate = content_with_links
-
-    # Translate content
-    translated_content, translation_status = translate_content(
-        content=content_to_translate,
-        target_language=target_language,
-        topic=topic,
-        base_path=paths["translation"],
-        token_tracker=token_tracker,
-        model_name=active_models.get("translation"),
-        content_type=content_type,
-        variables_manager=variables_manager
-    )
-
-    # Save translation status
-    save_artifact(translation_status, paths["translation"], "translation_status.json")
-
-    # Save translated content
-    translated_wordpress_data = {
+    # Prepare content for editorial review
+    merged_final_content = {
         "title": wordpress_data.get("title", f"Article on: {topic}"),
-        "content": translated_content,
+        "content": content_with_links,
         "excerpt": wordpress_data.get("excerpt", f"Auto-generated article on: {topic}"),
         "slug": wordpress_data.get("slug", topic.lower().replace(" ", "-"))
     }
-    save_artifact(translated_wordpress_data, paths["translation"], "translated_content.json")
 
-    # Update wordpress_data with translated content
-    wordpress_data["raw_response"] = json.dumps(translated_wordpress_data, ensure_ascii=False)
-    final_content_for_editorial = wordpress_data["raw_response"]
-
-    logger.info(f"✅ Translation completed: {translation_status['translated_length']} chars")
-
-    # --- Этап 13: Editorial Review ---
-    logger.info("Starting editorial review and cleanup...")
-    raw_response = final_content_for_editorial
+    raw_response = json.dumps(merged_final_content, ensure_ascii=False)
     wordpress_data_final = editorial_review(
         raw_response=raw_response,
         topic=topic,
@@ -650,12 +621,12 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
     token_tracker = TokenTracker()
     active_models = LLM_MODELS
 
-    # Создание путей к этапам
+    # Создание путей к этапам (обновлено для v2.3.0)
     paths = {
         "final_article": os.path.join(base_output_path, "08_article_generation"),
-        "fact_check": os.path.join(base_output_path, "09_fact_check"),
-        "link_placement": os.path.join(base_output_path, "10_link_placement"),
-        "translation": os.path.join(base_output_path, "11_translation"),
+        "translation": os.path.join(base_output_path, "09_translation"),
+        "fact_check": os.path.join(base_output_path, "10_fact_check"),
+        "link_placement": os.path.join(base_output_path, "11_link_placement"),
         "editorial_review": os.path.join(base_output_path, "12_editorial_review")
     }
 
@@ -667,28 +638,28 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
     if stage == "fact_check":
         logger.info("=== Starting Fact-Check Stage ===")
 
-        # Load wordpress_data.json from 08_final_article
-        wordpress_data_path = os.path.join(paths["final_article"], "wordpress_data.json")
-        if not os.path.exists(wordpress_data_path):
-            logger.error(f"Required file not found: {wordpress_data_path}")
-            logger.error("Run full pipeline first to generate article sections")
+        # Load translated_sections from 09_translation
+        translated_sections_path = os.path.join(paths["translation"], "translated_sections.json")
+        if not os.path.exists(translated_sections_path):
+            logger.error(f"Required file not found: {translated_sections_path}")
+            logger.error("Run translation stage first to create translated sections")
             return
 
-        with open(wordpress_data_path, 'r', encoding='utf-8') as f:
-            wordpress_data = json.load(f)
+        with open(translated_sections_path, 'r', encoding='utf-8') as f:
+            translated_data = json.load(f)
 
-        generated_sections = wordpress_data.get("generated_sections", [])
-        if not generated_sections:
-            logger.error("No generated sections found in wordpress_data.json")
+        translated_sections = translated_data.get("sections", [])
+        if not translated_sections:
+            logger.error("No translated sections found in translated_sections.json")
             return
 
-        logger.info(f"Found {len(generated_sections)} sections for fact-checking")
+        logger.info(f"Found {len(translated_sections)} translated sections for fact-checking")
 
-        # Run fact-checking
+        # Run fact-checking on translated sections
         from src.llm_processing import fact_check_sections
 
         fact_checked_content, fact_check_status = fact_check_sections(
-            sections=generated_sections,
+            sections=translated_sections,
             topic=topic,
             base_path=paths["fact_check"],
             token_tracker=token_tracker,
@@ -705,21 +676,6 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
                      paths["fact_check"],
                      "fact_check_status.json")
 
-        # Create merged_fact_checked_content.json for editorial_review
-        merged_content = {
-            "title": wordpress_data.get("title", ""),
-            "content": fact_checked_content,
-            "excerpt": wordpress_data.get("excerpt", ""),
-            "seo_title": wordpress_data.get("seo_title", ""),
-            "meta_description": wordpress_data.get("meta_description", ""),
-            "sources": wordpress_data.get("sources", []),
-            "faq": wordpress_data.get("faq", [])
-        }
-
-        save_artifact(merged_content,
-                     paths["fact_check"],
-                     "merged_fact_checked_content.json")
-
         logger.info(f"✅ Fact-check stage completed successfully")
 
         # Show token statistics
@@ -729,35 +685,28 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
     elif stage == "link_placement":
         logger.info("=== Starting Link Placement Stage ===")
 
-        # Load data after fact-check
-        fact_check_path = os.path.join(paths["fact_check"], "merged_fact_checked_content.json")
-        if not os.path.exists(fact_check_path):
-            logger.error(f"Required file not found: {fact_check_path}")
-            logger.error("Run fact_check stage first to create the necessary data files")
+        # Load translated_sections from 09_translation
+        translated_sections_path = os.path.join(paths["translation"], "translated_sections.json")
+        if not os.path.exists(translated_sections_path):
+            logger.error(f"Required file not found: {translated_sections_path}")
+            logger.error("Run translation stage first to create translated sections")
             return
 
-        with open(fact_check_path, 'r', encoding='utf-8') as f:
-            merged_content = json.load(f)
+        with open(translated_sections_path, 'r', encoding='utf-8') as f:
+            translated_data = json.load(f)
 
-        # Load generated_sections from 08_article_generation
-        wordpress_data_path = os.path.join(paths["final_article"], "wordpress_data.json")
-        if not os.path.exists(wordpress_data_path):
-            logger.error(f"Required file not found: {wordpress_data_path}")
+        translated_sections = translated_data.get("sections", [])
+        if not translated_sections:
+            logger.error("No translated sections found in translated_sections.json")
             return
 
-        with open(wordpress_data_path, 'r', encoding='utf-8') as f:
-            wordpress_data = json.load(f)
+        logger.info(f"Found {len(translated_sections)} translated sections for link placement")
 
-        generated_sections = wordpress_data.get("generated_sections", [])
-        if not generated_sections:
-            logger.error("No generated sections found in wordpress_data.json")
-            return
+        # Run link placement on translated sections
+        from src.llm_processing import place_links_in_sections
 
-        logger.info(f"Found {len(generated_sections)} sections for link placement")
-
-        # Run link placement
         content_with_links, link_placement_status = place_links_in_sections(
-            sections=generated_sections,
+            sections=translated_sections,
             topic=topic,
             base_path=paths["link_placement"],
             token_tracker=token_tracker,
@@ -774,22 +723,6 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
                      paths["link_placement"],
                      "link_placement_status.json")
 
-        # Create content for editorial_review
-        merged_content_with_links = {
-            "title": merged_content.get("title", ""),
-            "content": content_with_links,
-            "excerpt": merged_content.get("excerpt", ""),
-            "seo_title": merged_content.get("seo_title", ""),
-            "meta_description": merged_content.get("meta_description", ""),
-            "sources": merged_content.get("sources", []),
-            "faq": merged_content.get("faq", [])
-        }
-
-        # Save for editorial_review to use
-        save_artifact(merged_content_with_links,
-                     paths["link_placement"],
-                     "merged_content_with_links.json")
-
         logger.info(f"✅ Link placement stage completed successfully")
 
         # Show token statistics
@@ -801,26 +734,30 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
 
         # Get target language (default to русский if not specified)
         target_language = variables_manager.active_variables.get("language") if variables_manager else "русский"
-        logger.info(f"🌍 Starting translation to {target_language}...")
+        logger.info(f"🌍 Starting section-by-section translation to {target_language}...")
 
-        # Load content from link_placement (try merged first, then fallback to content_with_links)
-        merged_content_path = os.path.join(paths["link_placement"], "merged_content_with_links.json")
-        if not os.path.exists(merged_content_path):
-            # Fallback to older format
-            merged_content_path = os.path.join(paths["link_placement"], "content_with_links.json")
-            if not os.path.exists(merged_content_path):
-                logger.error(f"Required file not found: neither merged_content_with_links.json nor content_with_links.json")
-                return
-            logger.info("Using content_with_links.json (older format)")
+        # Load generated_sections from 08_article_generation
+        wordpress_data_path = os.path.join(paths["final_article"], "wordpress_data.json")
+        if not os.path.exists(wordpress_data_path):
+            logger.error(f"Required file not found: {wordpress_data_path}")
+            logger.error("Run full pipeline first to generate article sections")
+            return
 
-        with open(merged_content_path, 'r', encoding='utf-8') as f:
-            merged_content = json.load(f)
+        with open(wordpress_data_path, 'r', encoding='utf-8') as f:
+            wordpress_data = json.load(f)
 
-        content_to_translate = merged_content.get("content", "")
+        generated_sections = wordpress_data.get("generated_sections", [])
+        if not generated_sections:
+            logger.error("No generated sections found in wordpress_data.json")
+            return
 
-        # Translate content
-        translated_content, translation_status = translate_content(
-            content=content_to_translate,
+        logger.info(f"Found {len(generated_sections)} sections for translation")
+
+        # Run section-by-section translation
+        from src.llm_processing import translate_sections
+
+        translated_sections, translation_status = translate_sections(
+            sections=generated_sections,
             target_language=target_language,
             topic=topic,
             base_path=paths["translation"],
@@ -833,19 +770,10 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         # Save translation status
         save_artifact(translation_status, paths["translation"], "translation_status.json")
 
-        # Save translated content
-        translated_wordpress_data = {
-            "title": merged_content.get("title", f"Article on: {topic}"),
-            "content": translated_content,
-            "excerpt": merged_content.get("excerpt", ""),
-            "seo_title": merged_content.get("seo_title", ""),
-            "meta_description": merged_content.get("meta_description", ""),
-            "sources": merged_content.get("sources", []),
-            "faq": merged_content.get("faq", [])
-        }
-        save_artifact(translated_wordpress_data, paths["translation"], "translated_content.json")
+        # Save translated sections
+        save_artifact({"sections": translated_sections}, paths["translation"], "translated_sections.json")
 
-        logger.info(f"✅ Translation completed: {translation_status['translated_length']} chars")
+        logger.info(f"✅ Translation completed: {len(translated_sections)} sections translated")
 
         # Show token statistics
         token_summary = token_tracker.get_session_summary()
@@ -854,20 +782,40 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
     elif stage == "editorial_review":
         logger.info("=== Starting Editorial Review Stage ===")
 
-        # Try to load data after translation first, then link_placement, then fact_check
-        merged_content_path = os.path.join(paths["translation"], "translated_content.json")
+        # Try to load content in correct order: link_placement → fact_check → translation
+        # (Order matters: link_placement is latest, then fact_check, then translation)
+        merged_content_path = os.path.join(paths["link_placement"], "content_with_links.json")
         if not os.path.exists(merged_content_path):
-            # Fallback to link_placement if translation was skipped
-            merged_content_path = os.path.join(paths["link_placement"], "merged_content_with_links.json")
+            # Fallback to fact_check if link_placement was skipped
+            merged_content_path = os.path.join(paths["fact_check"], "fact_checked_content.json")
         if not os.path.exists(merged_content_path):
-            # Fallback to fact_check if both were skipped
-            merged_content_path = os.path.join(paths["fact_check"], "merged_fact_checked_content.json")
-        if not os.path.exists(merged_content_path):
-            logger.error(f"Required file not found: {merged_content_path}")
-            return
+            # Fallback to translation if both fact-check and link_placement were skipped
+            # Need to merge translated sections
+            translated_sections_path = os.path.join(paths["translation"], "translated_sections.json")
+            if not os.path.exists(translated_sections_path):
+                logger.error(f"Required file not found: no content available for editorial review")
+                return
 
-        with open(merged_content_path, 'r', encoding='utf-8') as f:
-            merged_content = json.load(f)
+            logger.info("Loading translated sections and merging for editorial review...")
+            with open(translated_sections_path, 'r', encoding='utf-8') as f:
+                translated_data = json.load(f)
+
+            translated_sections = translated_data.get("sections", [])
+            # Merge sections into one content string
+            merged_content_str = ""
+            for section in translated_sections:
+                if section.get("content"):
+                    merged_content_str += section["content"] + "\n\n"
+
+            merged_content = {"content": merged_content_str.strip()}
+        else:
+            with open(merged_content_path, 'r', encoding='utf-8') as f:
+                loaded_data = json.load(f)
+                # Handle both formats: {"content": "..."} and direct content string
+                if isinstance(loaded_data, dict) and "content" in loaded_data:
+                    merged_content = loaded_data
+                else:
+                    merged_content = {"content": str(loaded_data)}
 
         # Подготовить данные в формате, ожидаемом editorial_review
         raw_response = json.dumps(merged_content, ensure_ascii=False)
@@ -961,7 +909,7 @@ if __name__ == "__main__":
                        default='basic_articles', help='Type of content to generate')
     parser.add_argument('--skip-publication', action='store_true',
                        help='Skip WordPress publication')
-    parser.add_argument('--start-from-stage', choices=['fact_check', 'link_placement', 'translation', 'editorial_review', 'publication'],
+    parser.add_argument('--start-from-stage', choices=['translation', 'fact_check', 'link_placement', 'editorial_review', 'publication'],
                        help='Start pipeline from specific stage (requires existing output folder)')
     parser.add_argument('--verbose', action='store_true',
                        help='Show detailed debug logs (default: show only key events)')

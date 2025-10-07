@@ -36,13 +36,13 @@ WORDPRESS_APP_PASSWORD=xxxx xxxx xxxx xxxx
 ### Основные модели (DeepSeek FREE + Google Gemini):
 ```python
 LLM_MODELS = {
-    "extract_prompts": "deepseek/deepseek-chat-v3.1:free",        # FREE Model для извлечения промптов
-    "create_structure": "deepseek/deepseek-chat-v3.1:free",       # FREE Model для создания структуры
-    "generate_article": "deepseek/deepseek-chat-v3.1:free",       # FREE Model для генерации статей
-    "fact_check": "gemini-2.5-flash",                             # Google Gemini с нативным веб-поиском
-    "link_placement": "deepseek/deepseek-chat-v3.1:free",         # FREE Model для расстановки ссылок
-    "translation": "deepseek/deepseek-chat-v3.1:free",            # FREE Model для перевода контента
-    "editorial_review": "deepseek/deepseek-chat-v3.1:free",       # FREE Model для редакторской правки
+    "extract_prompts": "deepseek/deepseek-chat-v3.1:free",              # FREE Model для извлечения промптов
+    "create_structure": "deepseek/deepseek-chat-v3.1:free",             # FREE Model для создания структуры
+    "generate_article": "deepseek/deepseek-chat-v3.1:free",             # FREE Model для генерации статей
+    "fact_check": "gemini-2.5-flash-preview-09-2025",                   # Google Gemini с нативным веб-поиском
+    "link_placement": "gemini-2.5-flash-preview-09-2025",               # Google Gemini с нативным веб-поиском для поиска ссылок
+    "translation": "deepseek/deepseek-chat-v3.1:free",                  # FREE Model для перевода контента
+    "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model для редакторской правки
 }
 ```
 
@@ -52,9 +52,9 @@ FALLBACK_MODELS = {
     "extract_prompts": "google/gemini-2.5-flash-lite-preview-06-17",
     "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",
-    "fact_check": "deepseek/deepseek-chat-v3.1:free",             # Fallback без веб-поиска
-    "link_placement": "google/gemini-2.5-flash-lite-preview-06-17", # Fallback для расстановки ссылок
-    "translation": "google/gemini-2.5-flash-lite-preview-06-17",  # Fallback для перевода
+    "fact_check": "gemini-2.5-flash",                                   # Stable Gemini 2.5 Flash with web search
+    "link_placement": "gemini-2.5-flash",                               # Stable Gemini 2.5 Flash with web search
+    "translation": "google/gemini-2.5-flash-lite-preview-06-17",        # Fallback для перевода
     "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",
 }
 ```
@@ -468,31 +468,37 @@ curl -H "Authorization: Bearer $FIRECRAWL_API_KEY" \
 
 ### Требования для каждого этапа:
 - **Общее**: Должна существовать папка `output/{topic}/` с результатами предыдущих этапов
-- **fact_check**: требуется `08_article_generation/wordpress_data.json` с `generated_sections`
-- **link_placement**: требуется `09_fact_check/merged_fact_checked_content.json`
-- **editorial_review**: требуется `10_link_placement/content_with_links.json` (или `09_fact_check/merged_fact_checked_content.json` если link_placement пропущен)
-- **publication**: требуется `11_editorial_review/wordpress_data_final.json`
+- **translation**: требуется `08_article_generation/wordpress_data.json` с `generated_sections`
+- **fact_check**: требуется `09_translation/translated_sections.json`
+- **link_placement**: требуется `10_fact_check/fact_checked_content.json`
+- **editorial_review**: требуется `11_link_placement/content_with_links.json` (или `10_fact_check/fact_checked_content.json` если link_placement пропущен)
+- **publication**: требуется `12_editorial_review/wordpress_data_final.json`
 
 ### Примеры использования:
 ```bash
-# Запуск только факт-чека (после генерации секций)
-python3 main.py "Test" --start-from-stage fact_check
+# Запуск только перевода (после генерации секций)
+python3 main.py "Test" --start-from-stage translation
 # Требуется: 08_article_generation/wordpress_data.json
+# Время: ~3-5 минут
+
+# Запуск только факт-чека (после перевода)
+python3 main.py "Test" --start-from-stage fact_check
+# Требуется: 09_translation/translated_sections.json
 # Время: ~3-5 минут
 
 # Запуск только расстановки ссылок (после факт-чека)
 python3 main.py "Test" --start-from-stage link_placement
-# Требуется: 09_fact_check/merged_fact_checked_content.json
+# Требуется: 10_fact_check/fact_checked_content.json
 # Время: ~2-3 минуты
 
 # Запуск только редактуры (после расстановки ссылок)
 python3 main.py "Test" --start-from-stage editorial_review
-# Требуется: 10_link_placement/content_with_links.json
+# Требуется: 11_link_placement/content_with_links.json
 # Время: ~2-3 минуты
 
 # Запуск только публикации (после редактуры)
 python3 main.py "Test" --start-from-stage publication
-# Требуется: 11_editorial_review/wordpress_data_final.json
+# Требуется: 12_editorial_review/wordpress_data_final.json
 # Время: ~10-20 секунд
 
 # Отключить расстановку ссылок

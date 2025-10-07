@@ -71,7 +71,7 @@ FALLBACK_MODELS = {
     "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",
     "fact_check": "gemini-2.5-flash",  # Stable Gemini 2.5 Flash with web search
-    "link_placement": "google/gemini-2.5-flash-lite-preview-06-17",
+    "link_placement": "gemini-2.5-flash",  # Stable Gemini 2.5 Flash with web search
     "translation": "google/gemini-2.5-flash-lite-preview-06-17",
     "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",
 }
@@ -129,19 +129,15 @@ USER INPUT: "тема статьи"
     ↓
 [7] Create Ultimate Structure → 1 combined structure
     ↓
-[8] Generate Article → Generated content
+[8] Generate Sections → Section-by-section generation (Russian)
     ↓
-[9] Generate Sections → Section-by-section generation
+[9] Translation → Section-by-section translation to target language
     ↓
-[10] Fact-Check → Gemini web search validation
+[10] Fact-Check → Gemini web search validation (on translated text)
     ↓
-[11] Link Placement → 10-20 external links
+[11] Link Placement → 10-20 external links (for target language)
     ↓
-[12] Translation → Target language (default: русский)
-    ↓
-[13] Editorial Review → WordPress optimized
-    ↓
-[14] WordPress Publication → Published draft
+[12] Editorial Review → WordPress optimized + Publication
 ```
 
 ### Детальные этапы
@@ -247,7 +243,28 @@ content = "".join(content_parts)
 3. github.com (репозитории)
 4. Корпоративные блоги
 
-#### Этап 13: Editorial Review
+#### Этап 9: Translation (Section-by-Section)
+
+**Процесс**:
+1. Перевод каждой секции отдельно (как генерация)
+2. Валидация качества через regex (300+ chars)
+3. Словарная проверка через pyenchant
+4. Сохранение метаданных (оригинал, модель, язык)
+
+**Output**:
+```json
+{
+    "section_num": 1,
+    "section_title": "Introduction",
+    "content": "Translated content...",
+    "status": "translated",
+    "original_content": "Исходный контент...",
+    "translation_model": "deepseek/deepseek-chat-v3.1:free",
+    "target_language": "english"
+}
+```
+
+#### Этап 12: Editorial Review
 
 **Retry система**: 3×3 = 9 попыток максимум
 
@@ -321,7 +338,25 @@ LLM модели возвращают разные форматы данных �
 ]
 ```
 
-#### Format 3: Fact-Check (этап 10)
+#### Format 3: Translation (этап 9)
+
+**Ожидаемый формат**: МАССИВ переведенных секций
+
+```json
+[
+    {
+        "section_num": 1,
+        "section_title": "Introduction",
+        "content": "Translated content...",
+        "status": "translated",
+        "original_content": "Исходный контент...",
+        "translation_model": "deepseek/deepseek-chat-v3.1:free",
+        "target_language": "english"
+    }
+]
+```
+
+#### Format 4: Fact-Check (этап 10)
 
 **Ожидаемый формат**: ИСПРАВЛЕННЫЙ HTML КОНТЕНТ (строка)
 
@@ -331,7 +366,7 @@ LLM модели возвращают разные форматы данных �
 <pre><code class='language-bash'>исправленные команды</code></pre>
 ```
 
-#### Format 4: Editorial Review (этап 13)
+#### Format 5: Editorial Review (этап 12)
 
 **Ожидаемый формат**: ОБЪЕКТ с метаданными
 
@@ -369,20 +404,80 @@ if isinstance(parsed, dict):
         return [parsed]
 ```
 
-### Content Quality Validation
+### Content Quality Validation v3.0
 
-**Функция**: `validate_content_quality(content, min_length=50)`
+**Функция**: `validate_content_quality_v3(content, min_length=300, target_language=None, finish_reason=None) -> tuple`
 
-**Проверки**:
-1. Минимальная длина (50+ символов)
-2. Single character dominance (>70% одного символа = спам)
-3. No words in long content (контент без слов)
-4. Повторяющиеся паттерны (>40% дублей)
-5. Зацикливание точек/цифр (10+ подряд)
-6. Уникальность слов (<15% уникальных = спам)
-7. Преобладание спецсимволов
+**Революционное обновление** (октябрь 6, 2025):
+- Замена regex системы на научно-обоснованную многоуровневую валидацию
+- Устранение критических пропусков спама (section_4, group_2 MAX_TOKENS)
+- Возвращает кортеж: `(success: bool, reason: str)` для детальной диагностики
 
-**Применяется на этапах**: 6, 7, 8, 9, 10, 13
+**Архитектура v3.0**:
+- Валидация происходит ВНУТРИ `_make_llm_request_with_retry_sync()`
+- Провал валидации → exception с детальной причиной → retry → fallback модель
+- Единый порог: `min_length=300` для всех этапов
+- **Новое**: передача `target_language` для языковой проверки
+- **Новое**: проверка `finish_reason` от API для отклонения MAX_TOKENS/CONTENT_FILTER
+
+**6 научно-обоснованных уровней проверки**:
+
+1. **Compression Ratio (gzip)** - главная защита
+   - Threshold: >4.0 = spam (Go Fish Digital, 2024)
+   - Ловит все типы повторений (от 1 символа)
+   - section_4: ratio 53.39 → BLOCKED ✅
+   - group_2: ratio 129.97 → BLOCKED ✅
+
+2. **Shannon Entropy** - информационная плотность
+   - Threshold: <2.5 bits = repetitive content
+   - Качественный текст: 3.5-4.5 bits
+
+3. **Character Bigrams** - короткие циклы
+   - Threshold: <15% unique bigrams
+   - Защита от "-о-о-о-" паттернов (пропускал старый regex)
+
+4. **Word Density** - лексическая структура
+   - Valid range: 5-40% слов от текста
+   - Отклоняет symbol spam
+
+5. **Finish Reason** - API статус (НОВОЕ)
+   - Accepted: STOP, END_TURN
+   - Rejected: MAX_TOKENS, CONTENT_FILTER, ERROR
+   - Защита от group_2 MAX_TOKENS спама ✅
+
+6. **Language Check** - целевой язык (НОВОЕ)
+   - **Russian**: >30% cyrillic characters
+   - **English/Spanish/German/French**: >50% latin characters
+   - **Unknown languages**: skip check (только 5 уровней)
+   - Отклоняет fake words gibberish (ююю, язяк, цылеют) ✅
+   - Отклоняет контент на неправильном языке ✅
+
+**Применяется на этапах**:
+
+**v3.0 валидация (6 уровней)**:
+- **Этап 8** (generate_article): v3.0 full с `target_language=None`
+- **Этап 9** (translation): v3.0 full + language check с `target_language` из `--language` флага
+  - Поддерживаемые: `ru/russian/русский`, `en/english/английский`, `es/spanish/español/испанский`, `de/german/deutsch/немецкий`, `fr/french/français/французский`
+
+**Минимальная валидация** (только длина ≥ 100 символов):
+- **Этап 7** (extract_prompts): JSON структуры → низкий bigram uniqueness → false positives
+- **Этап 10** (fact_check): короткие фактические ответы
+- **Этап 11** (link_placement): HTML с ссылками → низкий bigram uniqueness
+- **Этап 12** (editorial_review): контент уже проверен на этапах 8-11 → избыточная валидация
+
+**Retry Flow v3.0**:
+```
+Primary model (3 попытки с v3.0 validation)
+  → Fallback model (3 попытки с v3.0 validation)
+  = 6 attempts total
+```
+
+**Научные источники**:
+- Compression ratio: Go Fish Digital (2024) - SEO spam detection
+- Shannon entropy: Stanford NLP (2024) - text diversity
+- Kolmogorov complexity: Frontiers Psychology (2022)
+
+**См. также**: [CONTENT_VALIDATION.md](CONTENT_VALIDATION.md) - полная документация v3.0
 
 ### Token Cleanup
 

@@ -28,7 +28,7 @@ User:{author_style}{theme_focus}{target_audience}{tone_of_voice}{language}
 ФОРМАТИРОВАНИЕ КОДА И КОМАНД:
 - Команды: <pre><code class='language-bash'>команда здесь</code></pre>
 - Python код: <pre><code class='language-python'>код здесь</code></pre>
-- Другой код: <pre><code class='language-{язык}'>код здесь</code></pre>
+- Другой код: <pre><code class='language-{language}'>код здесь</code></pre>
 - ЗАПРЕЩЕНО использовать ```bash или ```python - только HTML теги!
 
 Инструктивность: 

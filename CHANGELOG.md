@@ -1,5 +1,184 @@
 # Content Factory Changelog
 
+## 🏗️ Version 2.3.0 - October 6, 2025
+
+### **MAJOR ARCHITECTURE CHANGE: Translation Stage Relocation**
+
+#### **🔄 PIPELINE RESTRUCTURING**
+
+**Перемещен этап Translation с позиции 11 на позицию 9** - критическое изменение порядка обработки:
+
+**Старая архитектура (v2.2.0):**
+```
+08 → Generate Sections (RU) → 09 Fact-check (RU) → 10 Link Placement (RU) → 11 Translation → 12 Editorial
+```
+
+**Новая архитектура (v2.3.0):**
+```
+08 → Generate Sections (RU) → 09 Translation (section-by-section) → 10 Fact-check (target lang) → 11 Link Placement (target lang) → 12 Editorial
+```
+
+**Ключевые изменения:**
+- ✅ **Section-by-section translation**: Каждая секция переводится отдельно (как генерация)
+- ✅ **Fact-check на целевом языке**: Проверка фактов на переведенном тексте (точнее)
+- ✅ **Link placement на целевом языке**: Ссылки подбираются для целевого языка
+- ✅ **Token savings**: Факт-чек и ссылки на уже переведенном тексте (меньше токенов)
+- ✅ **Conditional logic preserved**: fact_check_mode и link_placement_mode работают как раньше
+
+#### **🆕 NEW FUNCTION: translate_sections()**
+
+**Файл**: `src/llm_processing.py` (lines 2503-2658)
+
+**Возможности:**
+- Посекционный перевод (каждая секция независимо)
+- Dictionary validation с pyenchant для целевого языка
+- Quality validation через regex (300+ chars minimum)
+- Metadata сохранение (original_content, translation_model, target_language)
+- Graceful fallback: DeepSeek → Gemini 2.5
+- 2-second delays между секциями
+
+**Параметры:**
+```python
+translate_sections(
+    sections: List[Dict],           # Generated sections from stage 8
+    target_language: str,            # From variables_manager.language
+    topic: str,
+    base_path: str,                  # 09_translation/
+    token_tracker: TokenTracker,
+    model_name: str,                 # DeepSeek Chat v3.1
+    content_type: str,
+    variables_manager
+) -> Tuple[List[Dict], Dict]
+```
+
+**Output:**
+```python
+translated_sections = [
+    {
+        "section_num": 1,
+        "section_title": "Introduction",
+        "content": "Translated content...",
+        "status": "translated",
+        "original_content": "Исходный контент...",
+        "translation_model": "deepseek/deepseek-chat-v3.1:free",
+        "target_language": "english"
+    },
+    # ... sections 2-N
+]
+```
+
+#### **📂 FOLDER STRUCTURE CHANGES**
+
+**Renumbered Folders:**
+```
+output/{topic}/
+├── 08_article_generation/      (unchanged)
+├── 09_translation/             ← MOVED from 11
+│   ├── section_1/, section_2/, ...
+│   ├── translated_sections.json
+│   └── translation_status.json
+├── 10_fact_check/              ← RENUMBERED from 09
+│   ├── group_1/, group_2/, ...
+│   ├── fact_checked_content.json
+│   └── fact_check_status.json
+├── 11_link_placement/          ← RENUMBERED from 10
+│   ├── link_placement_status.json
+│   └── content_with_links.json
+└── 12_editorial_review/        (unchanged)
+```
+
+#### **🔧 TECHNICAL CHANGES**
+
+**Modified Files:**
+1. **src/llm_processing.py**
+   - Added `translate_sections()` function (2503-2658)
+   - Section-by-section translation logic
+   - Dictionary validation for target language
+   - Metadata tracking for each section
+
+2. **main.py**
+   - Updated imports: added `translate_sections`
+   - Reordered stages 9-12 (lines 370-526)
+   - Updated folder paths (lines 136-149)
+   - Updated `--start-from-stage` choices (line 935)
+   - Updated pipeline docstring (lines 107-119)
+   - Conditional logic: fact_check and link_placement now work on translated_sections
+
+3. **docs/flow.md**
+   - Complete rewrite of stages 9-12 (lines 421-769)
+   - Updated data flow diagrams
+   - Updated key design principles
+   - Added section-by-section translation documentation
+
+**Conditional Logic:**
+```python
+# Stage 10: Fact-check (conditional)
+if fact_check_mode == "off":
+    # Merge translated sections → skip fact-check
+    fact_checked_content = merge_sections(translated_sections)
+else:
+    # Run fact-check on translated text
+    fact_checked_content = fact_check_sections(translated_sections, ...)
+
+# Stage 11: Link Placement (conditional)
+if link_placement_mode == "off":
+    # Use fact-checked content as-is
+    content_with_links = fact_checked_content
+else:
+    # Place links on translated text
+    content_with_links = place_links_in_sections(translated_sections, ...)
+```
+
+#### **⚡ PERFORMANCE IMPACT**
+
+**Execution time:** ~12-17 minutes (unchanged, translation moved but same total stages)
+
+**Token usage:**
+- **Translation**: ~10k-20k tokens (depends on article length)
+- **Fact-check**: Slightly fewer tokens (already translated, shorter prompts)
+- **Link placement**: Slightly fewer tokens (already translated)
+- **Total**: ~45-55k tokens (similar to v2.2.0)
+
+**Benefits:**
+- 🎯 More accurate fact-checking (target language context)
+- 🔗 Better link selection (target language sources)
+- 💰 Potential token savings (consolidated prompts)
+- 🌍 Better multi-language support
+
+#### **📊 UPDATED DOCUMENTATION**
+
+- ✅ **main.py**: Docstring updated with new stage order
+- ✅ **docs/flow.md**: Stages 9-12 completely rewritten
+- ✅ **docs/flow.md**: Updated data flow diagrams
+- ✅ **docs/flow.md**: Updated key design principles
+- ✅ **CHANGELOG.md**: This entry
+
+#### **🔄 MIGRATION NOTES**
+
+**For existing projects:**
+- Old output folders (09_fact_check, 10_link_placement, 11_translation) will still work
+- New pipeline creates new folder structure (09_translation, 10_fact_check, 11_link_placement)
+- No breaking changes to CLI arguments or variables
+
+**CLI Examples:**
+```bash
+# Full pipeline (new architecture)
+python main.py "topic" --language "english"
+# → Translates sections at stage 9
+# → Fact-checks English text at stage 10
+# → Places links in English text at stage 11
+
+# Skip stages (still works)
+python main.py "topic" --fact-check-mode off --link-placement-mode off
+# → Translation at stage 9 → merges → Editorial at stage 12
+
+# Start from translation
+python main.py "topic" --start-from-stage translation
+# → Starts at stage 9 (translation)
+```
+
+---
+
 ## 🛡️ Version 2.2.0 - October 6, 2025
 
 ### **ANTI-SPAM VALIDATION UPGRADE**
