@@ -22,10 +22,10 @@ from src.llm_processing import (
     translate_content,  # OLD: for translating full content (kept for backward compatibility)
     editorial_review,
     _load_and_prepare_messages,
-    _make_llm_request_with_retry,
     save_llm_interaction,
     _parse_json_from_response
 )
+from src.llm_request import make_llm_request  # Unified LLM request with automatic fallback
 from src.wordpress_publisher import WordPressPublisher
 from src.token_tracker import TokenTracker
 from src.config import LLM_MODELS, FALLBACK_MODELS
@@ -289,61 +289,38 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         stage_name="create_structure"
     )
 
-    # Try with primary model first, then fallback if JSON parsing fails
-    ultimate_structure = None
-    models_to_try = [
-        active_models.get("create_structure"),
-        FALLBACK_MODELS.get("create_structure")  # google/gemini-2.5-flash-lite-preview-06-17
-    ]
+    # Use unified LLM request with automatic fallback
+    try:
+        response_obj, actual_model = make_llm_request(
+            stage_name="create_structure",
+            messages=messages,
+            temperature=0.3,
+            token_tracker=token_tracker,
+            base_path=paths["ultimate_structure"],
+            validation_level="minimal"  # Create structure uses minimal validation
+        )
 
-    for model_idx, current_model in enumerate(models_to_try):
-        if not current_model or (model_idx > 0 and current_model == models_to_try[0]):
-            continue  # Skip if no fallback or same as primary
+        content = response_obj.choices[0].message.content
+        save_llm_interaction(
+            base_path=paths["ultimate_structure"],
+            stage_name="create_structure",
+            messages=messages,
+            response=content,
+            request_id="ultimate_structure"
+        )
 
-        model_label = "primary" if model_idx == 0 else "fallback"
+        ultimate_structure = _parse_json_from_response(content)
 
-        for attempt in range(1, 4):  # 3 attempts per model
-            try:
-                logger.info(f"🔄 Create structure attempt {attempt}/3 with {model_label} model: {current_model}")
+        if ultimate_structure and ultimate_structure != []:
+            logger.info(f"✅ Successfully created ultimate structure with {actual_model}")
+            save_artifact(ultimate_structure, paths["ultimate_structure"], "ultimate_structure.json")
+        else:
+            logger.error("Failed to parse JSON from create_structure response")
+            ultimate_structure = None
 
-                response_obj, actual_model = _make_llm_request_with_retry(
-                    stage_name="create_structure",
-                    model_name=current_model,
-                    messages=messages,
-                    token_tracker=token_tracker,
-                    base_path=paths["ultimate_structure"],
-                    temperature=0.3
-                )
-
-                content = response_obj.choices[0].message.content
-                save_llm_interaction(
-                    base_path=paths["ultimate_structure"],
-                    stage_name="create_structure",
-                    messages=messages,
-                    response=content,
-                    request_id=f"ultimate_structure_{model_label}_attempt{attempt}"
-                )
-
-                ultimate_structure = _parse_json_from_response(content)
-
-                if ultimate_structure and ultimate_structure != []:
-                    logger.info(f"✅ Successfully parsed structure with {current_model} on attempt {attempt}")
-                    save_artifact(ultimate_structure, paths["ultimate_structure"], "ultimate_structure.json")
-                    break
-                else:
-                    logger.warning(f"❌ Invalid JSON from {current_model} on attempt {attempt}")
-                    if attempt < 3:
-                        time.sleep(2)  # Small delay before retry
-                    elif model_idx == 0 and models_to_try[1]:
-                        logger.warning(f"🔄 Primary model failed, switching to fallback model...")
-
-            except Exception as e:
-                logger.error(f"Error with {current_model} on attempt {attempt}: {e}", exc_info=True)
-                if attempt < 3:
-                    time.sleep(2)
-
-        if ultimate_structure:
-            break
+    except Exception as e:
+        logger.error(f"Failed to create ultimate structure: {e}", exc_info=True)
+        ultimate_structure = None
 
     if not ultimate_structure or ultimate_structure == []:
         logger.error("Failed to create valid structure with all models and attempts. Exiting.")
