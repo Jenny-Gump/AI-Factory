@@ -69,7 +69,7 @@ class LLMRequestHandler:
         response_format: Optional[Dict] = None,
         token_tracker: Optional[TokenTracker] = None,
         base_path: Optional[str] = None,
-        validation_level: str = "v3",
+        validation_level: str = "minimal",
         custom_validator: Optional[Callable] = None,
         enable_web_search: bool = False,
         **validation_kwargs
@@ -87,7 +87,7 @@ class LLMRequestHandler:
             response_format: Response format spec, e.g., {"type": "json_object"}
             token_tracker: TokenTracker instance for usage tracking (optional)
             base_path: Base path for saving responses (optional)
-            validation_level: "v3", "minimal", "none" (default: "v3")
+            validation_level: "v3", "minimal", "none" (default: "minimal")
             custom_validator: Custom validation function (optional)
             enable_web_search: Enable web search for Google models (default: False)
             **validation_kwargs: Additional validation parameters

@@ -159,9 +159,8 @@ class LLMProviderRouter:
         Call OpenRouter API.
 
         OpenRouter supports:
-        - DeepSeek free models (deepseek/deepseek-chat-v3.1:free)
-        - Google free models (google/gemini-2.0-flash-exp:free)
-        - Various other models with unified API
+        - Google Gemini models (google/gemini-2.5-flash-lite-preview-06-17)
+        - Various free and paid models with unified API
 
         Args:
             model_name: Model identifier

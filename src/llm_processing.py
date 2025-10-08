@@ -12,6 +12,7 @@ import openai
 from src.logger_config import logger
 from src.token_tracker import TokenTracker
 from src.config import LLM_MODELS, DEFAULT_MODEL, LLM_PROVIDERS, get_provider_for_model, FALLBACK_MODELS, RETRY_CONFIG, SECTION_TIMEOUT, MODEL_TIMEOUT, SECTION_MAX_RETRIES
+from src.llm_request import make_llm_request
 
 # Загружаем переменные среды
 load_dotenv()
@@ -285,7 +286,7 @@ def save_llm_interaction(base_path: str, stage_name: str, messages: List[Dict],
     
     Args:
         base_path: Базовый путь для сохранения (например, paths["extraction"])
-        stage_name: Название этапа (например, "extract_prompts")
+        stage_name: Название этапа (например, "extract_sections")
         messages: Сообщения, отправленные в LLM
         response: Сырой ответ от LLM
         request_id: ID запроса для множественных запросов (например, source_1)
@@ -343,7 +344,7 @@ def _parse_json_from_response(response_content: str, stage_context: str = "unkno
 
     ДЕФОЛТНЫЕ ФОРМАТЫ ПО ЭТАПАМ:
     - ultimate_structure: объект {"article_structure": [...], "writing_guidelines": {...}}
-    - extract_prompts: массив структур [{"section_title": ..., ...}, ...]
+    - extract_sections: массив структур [{"section_title": ..., ...}, ...]
     - other stages: чаще массив, иногда объект
 
     Args:
@@ -631,7 +632,15 @@ async def _make_llm_request_with_timeout(stage_name: str, model_name: str, messa
         try:
             # Make request with timeout
             def make_request():
-                return _make_llm_request_with_retry_sync(stage_name, current_model, messages, token_tracker, base_path, **kwargs)
+                return make_llm_request(
+                    stage_name=stage_name,
+                    model_name=current_model,
+                    messages=messages,
+                    token_tracker=token_tracker,
+                    base_path=base_path,
+                    validation_level="v3",
+                    **kwargs
+                )
 
             loop = asyncio.get_event_loop()
             response_obj, actual_model = await asyncio.wait_for(
@@ -796,7 +805,7 @@ def _make_google_direct_request(model_name: str, messages: list, **kwargs):
     return response_obj
 
 
-def extract_prompts_from_article(article_text: str, topic: str, base_path: str = None,
+def extract_sections_from_article(article_text: str, topic: str, base_path: str = None,
                                  source_id: str = None, token_tracker: TokenTracker = None,
                                  model_name: str = None, content_type: str = "basic_articles",
                                  variables_manager=None) -> List[Dict]:
@@ -819,13 +828,13 @@ def extract_prompts_from_article(article_text: str, topic: str, base_path: str =
             "01_extract",
             {"topic": topic, "article_text": article_text},
             variables_manager=variables_manager,
-            stage_name="extract_prompts"
+            stage_name="extract_sections"
         )
 
         # Use unified LLM request system
         from src.llm_request import make_llm_request
         response, actual_model = make_llm_request(
-            stage_name="extract_prompts",
+            stage_name="extract_sections",
             messages=messages,
             temperature=0.3,
             token_tracker=token_tracker,
@@ -839,7 +848,7 @@ def extract_prompts_from_article(article_text: str, topic: str, base_path: str =
         if base_path:
             save_llm_interaction(
                 base_path=base_path,
-                stage_name="extract_prompts",
+                stage_name="extract_sections",
                 messages=messages,
                 response=content,
                 request_id=source_id or "single",
@@ -1610,13 +1619,14 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                 group_path = os.path.join(base_path, f"group_{group_num}") if base_path else None
 
                 # Make fact-check request
-                response_obj, actual_model = _make_llm_request_with_retry(
+                response_obj, actual_model = make_llm_request(
                     stage_name="fact_check",
                     model_name=model_name or LLM_MODELS.get("fact_check"),
                     messages=messages,
                     token_tracker=token_tracker,
                     base_path=group_path,
-                    temperature=0.2  # Low temperature for factual accuracy
+                    temperature=0.2,  # Low temperature for factual accuracy
+                    validation_level="minimal"  # Fact-check uses minimal validation (doc: short factual answers)
                 )
 
                 fact_checked_content = response_obj.choices[0].message.content
@@ -1666,19 +1676,19 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                     fact_check_status["failed_groups"] += 1
                     group_section_titles = [section.get("section_title", "Untitled Section") for section in group]
                     fact_check_status["failed_sections"].extend(group_section_titles)
-            fact_check_status["error_details"].append({
-                "group": group_num,
-                "sections": group_section_titles,
-                "error": str(e)
-            })
+                    fact_check_status["error_details"].append({
+                        "group": group_num,
+                        "sections": group_section_titles,
+                        "error": str(e)
+                    })
 
-            # Keep original content for this group if fact-check fails
-            group_original_content = ""
-            for section in group:
-                section_title = section.get("section_title", "Untitled Section")
-                section_content = section.get("content", "")
-                group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
-            fact_checked_content_parts.append(group_original_content.strip())
+                    # Keep original content for this group if fact-check fails
+                    group_original_content = ""
+                    for section in group:
+                        section_title = section.get("section_title", "Untitled Section")
+                        section_content = section.get("content", "")
+                        group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+                    fact_checked_content_parts.append(group_original_content.strip())
 
     # Combine all fact-checked content parts
     combined_fact_checked_content = "\n\n".join(fact_checked_content_parts)
@@ -1787,16 +1797,13 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
     
     # Prepare messages
     try:
-        # Calculate article length
-        article_length = len(raw_response)
-
         messages = _load_and_prepare_messages(
             content_type,
             "02_editorial_review",
             {
                 "raw_response": raw_response,
-                "topic": topic,
-                "article_length": str(article_length)  # Add article length in characters
+                "topic": topic
+                # article_length is provided by variables_manager if set via CLI
             },
             variables_manager=variables_manager,
             stage_name="editorial_review"
@@ -1816,7 +1823,7 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
             response_format={"type": "json_object"},  # Request JSON mode
             token_tracker=token_tracker,
             base_path=base_path,
-            validation_level="v3"  # Editorial review uses v3.0 validation
+            validation_level="minimal"  # Editorial uses minimal validation (doc: content already validated on stages 8+9)
         )
 
         response = response_obj.choices[0].message.content
@@ -2131,13 +2138,14 @@ def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = N
                 group_path = os.path.join(base_path, f"group_{group_num}") if base_path else None
 
                 # Make link placement request
-                response_obj, actual_model = _make_llm_request_with_retry(
+                response_obj, actual_model = make_llm_request(
                     stage_name="link_placement",
                     model_name=model_name or LLM_MODELS.get("link_placement"),
                     messages=messages,
                     token_tracker=token_tracker,
                     base_path=group_path,
-                    temperature=0.3  # Slightly higher for creative link placement
+                    temperature=0.3,  # Slightly higher for creative link placement
+                    validation_level="minimal"  # Link placement uses minimal validation (doc: HTML content causes false positives)
                 )
 
                 content_with_links = response_obj.choices[0].message.content
@@ -2182,19 +2190,19 @@ def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = N
                     link_placement_status["failed_groups"] += 1
                     group_section_titles = [section.get("section_title", "Untitled Section") for section in group]
                     link_placement_status["failed_sections"].extend(group_section_titles)
-            link_placement_status["error_details"].append({
-                "group": group_num,
-                "sections": group_section_titles,
-                "error": str(e)
-            })
+                    link_placement_status["error_details"].append({
+                        "group": group_num,
+                        "sections": group_section_titles,
+                        "error": str(e)
+                    })
 
-            # Keep original content for this group if link placement fails
-            group_original_content = ""
-            for section in group:
-                section_title = section.get("section_title", "Untitled Section")
-                section_content = section.get("content", "")
-                group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
-            content_with_links_parts.append(group_original_content.strip())
+                    # Keep original content for this group if link placement fails
+                    group_original_content = ""
+                    for section in group:
+                        section_title = section.get("section_title", "Untitled Section")
+                        section_content = section.get("content", "")
+                        group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+                    content_with_links_parts.append(group_original_content.strip())
 
     # Combine all content parts with links
     combined_content_with_links = "\n\n".join(content_with_links_parts)
@@ -2264,15 +2272,23 @@ def translate_content(content: str, target_language: str, topic: str, base_path:
             stage_name="translation"
         )
 
-        # Make translation request (validation happens inside _make_llm_request_with_retry)
+        # Make translation request (validation happens inside make_llm_request)
         original_length = len(content)
-        response_obj, actual_model = _make_llm_request_with_retry(
+
+        # Import custom validator for translation
+        from src.llm_validation import translation_validator
+
+        response_obj, actual_model = make_llm_request(
             stage_name="translation",
             model_name=model_name or LLM_MODELS.get("translation"),
             messages=messages,
             token_tracker=token_tracker,
             base_path=base_path,
-            temperature=0.3
+            temperature=0.3,
+            validation_level="v3",
+            custom_validator=translation_validator,
+            original_length=original_length,
+            target_language=target_language
         )
 
         translated_content = response_obj.choices[0].message.content

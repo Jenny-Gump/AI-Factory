@@ -50,24 +50,24 @@ WORDPRESS_STATUS = os.getenv("WORDPRESS_STATUS", "draft")
 # --- LLM Models Configuration ---
 # Models for different pipeline stages
 LLM_MODELS = {
-    "extract_prompts": "deepseek/deepseek-chat-v3.1:free",              # FREE Model for prompt extraction from articles
-    "create_structure": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for creating ultimate structure (basic_articles)
-    "generate_article": "deepseek/deepseek-chat-v3.1:free",             # FREE Model for WordPress article generation
+    "extract_sections": "deepseek-chat",                                # DeepSeek Chat for section extraction
+    "create_structure": "deepseek-reasoner",                            # DeepSeek Reasoner for structure creation
+    "generate_article": "deepseek-reasoner",                            # DeepSeek Reasoner for article generation
     "fact_check": "gemini-2.5-flash-preview-09-2025",                   # Google Gemini 2.5 Flash (Sept 2025) with native web search for fact-checking
     "link_placement": "gemini-2.5-flash-preview-09-2025",               # Google Gemini 2.5 Flash (Sept 2025) with native web search for finding relevant links
-    "translation": "google/gemini-2.0-flash-exp:free",                  # TEMPORARY: Testing Gemini 2.0 Flash Exp for translation
-    "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model like other stages
+    "translation": "deepseek-reasoner",                                 # DeepSeek Reasoner for translation
+    "editorial_review": "deepseek-reasoner",                            # DeepSeek Reasoner for editorial review
 }
 
 # Fallback models for each stage (used when primary model fails)
 FALLBACK_MODELS = {
-    "extract_prompts": "google/gemini-2.5-flash-lite-preview-06-17",    # Fallback to Gemini 2.5
+    "extract_sections": "google/gemini-2.5-flash-lite-preview-06-17",    # Fallback to Gemini 2.5
     "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "fact_check": "gemini-2.5-flash",                                   # Stable Gemini 2.5 Flash with web search
     "link_placement": "gemini-2.5-flash",                               # Stable Gemini 2.5 Flash with web search
     "translation": "google/gemini-2.5-flash-lite-preview-06-17",        # Fallback to Gemini 2.5
-    "editorial_review": "deepseek-reasoner",  # Direct DeepSeek API fallback with reasoning mode
+    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
 }
 
 # Retry configuration for LLM requests
@@ -83,7 +83,7 @@ MODEL_TIMEOUT = 60     # 1 minute timeout per model (primary + fallback)
 SECTION_MAX_RETRIES = 3  # Maximum retries per section
 
 # Default model if no specific model is configured
-DEFAULT_MODEL = "deepseek/deepseek-chat-v3.1:free"
+DEFAULT_MODEL = "deepseek-reasoner"
 
 # --- LLM Providers Configuration ---
 LLM_PROVIDERS = {

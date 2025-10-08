@@ -578,7 +578,7 @@ if __name__ == "__main__":
     # Подготовка model_overrides
     model_overrides = {}
     if args.extract_model:
-        model_overrides["extract_prompts"] = args.extract_model
+        model_overrides["extract_sections"] = args.extract_model
     if args.generate_model:
         model_overrides["generate_article"] = args.generate_model
     if args.editorial_model:

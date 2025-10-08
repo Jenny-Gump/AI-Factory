@@ -51,13 +51,13 @@ WORDPRESS_APP_PASSWORD=xxxx xxxx xxxx xxxx
 
 ```python
 LLM_MODELS = {
-    "extract_prompts": "deepseek/deepseek-chat-v3.1:free",
-    "create_structure": "deepseek/deepseek-chat-v3.1:free",
-    "generate_article": "deepseek/deepseek-chat-v3.1:free",
+    "extract_sections": "deepseek-reasoner",
+    "create_structure": "deepseek-reasoner",
+    "generate_article": "deepseek-reasoner",
     "fact_check": "gemini-2.5-flash-preview-09-2025",  # Native web search
     "link_placement": "gemini-2.5-flash-preview-09-2025",  # Native web search
-    "translation": "google/gemini-2.0-flash-exp:free",  # TEMPORARY: Testing Gemini 2.0 Flash Exp
-    "editorial_review": "deepseek/deepseek-chat-v3.1:free",
+    "translation": "deepseek-reasoner",
+    "editorial_review": "deepseek-reasoner",
 }
 ```
 
@@ -67,13 +67,13 @@ LLM_MODELS = {
 
 ```python
 FALLBACK_MODELS = {
-    "extract_prompts": "google/gemini-2.5-flash-lite-preview-06-17",
+    "extract_sections": "google/gemini-2.5-flash-lite-preview-06-17",
     "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",
     "fact_check": "gemini-2.5-flash",  # Stable Gemini 2.5 Flash with web search
     "link_placement": "gemini-2.5-flash",  # Stable Gemini 2.5 Flash with web search
     "translation": "google/gemini-2.5-flash-lite-preview-06-17",
-    "editorial_review": "deepseek-reasoner",  # Direct DeepSeek API fallback with reasoning mode
+    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",
 }
 ```
 
@@ -81,7 +81,7 @@ FALLBACK_MODELS = {
 
 ```python
 LLM_PROVIDERS = {
-    "deepseek/deepseek-chat-v3.1:free": "openrouter",
+    "deepseek-reasoner": "deepseek",
     "google/gemini-2.5-flash-lite-preview-06-17": "openrouter",
     "gemini-2.5-flash-preview-09-2025": "google_direct",  # Direct Gemini API
 }
@@ -259,7 +259,7 @@ content = "".join(content_parts)
     "content": "Translated content...",
     "status": "translated",
     "original_content": "Исходный контент...",
-    "translation_model": "google/gemini-2.0-flash-exp:free",
+    "translation_model": "deepseek-reasoner",
     "target_language": "english"
 }
 ```
@@ -350,7 +350,7 @@ LLM модели возвращают разные форматы данных �
         "content": "Translated content...",
         "status": "translated",
         "original_content": "Исходный контент...",
-        "translation_model": "google/gemini-2.0-flash-exp:free",
+        "translation_model": "deepseek-reasoner",
         "target_language": "english"
     }
 ]
@@ -460,10 +460,11 @@ if isinstance(parsed, dict):
   - Поддерживаемые: `ru/russian/русский`, `en/english/английский`, `es/spanish/español/испанский`, `de/german/deutsch/немецкий`, `fr/french/français/французский`
 
 **Минимальная валидация** (только длина ≥ 100 символов):
-- **Этап 7** (extract_prompts): JSON структуры → низкий bigram uniqueness → false positives
+- **create_structure**: JSON структуры → низкий bigram uniqueness → false positives
+- **Этап 7** (extract_sections): JSON структуры → низкий bigram uniqueness → false positives
 - **Этап 10** (fact_check): короткие фактические ответы
 - **Этап 11** (link_placement): HTML с ссылками → низкий bigram uniqueness
-- **Этап 12** (editorial_review): контент уже проверен на этапах 8-11 → избыточная валидация
+- **Этап 12** (editorial_review): контент уже проверен на этапах 8+9 → избыточная валидация
 
 **Retry Flow v3.0**:
 ```
@@ -478,6 +479,145 @@ Primary model (3 попытки с v3.0 validation)
 - Kolmogorov complexity: Frontiers Psychology (2022)
 
 **См. также**: [CONTENT_VALIDATION.md](CONTENT_VALIDATION.md) - полная документация v3.0
+
+---
+
+### Unified LLM Request System (v2.3.2)
+
+**Архитектура**: Централизованная система для всех LLM запросов с автоматическим retry/fallback/validation
+
+**Компоненты**:
+
+#### 1. src/llm_request.py - Главный обработчик запросов
+
+**Класс**: `LLMRequestHandler`
+
+**Главная функция**: `make_llm_request(stage_name, messages, **kwargs)`
+
+**Возможности**:
+- Автоматический retry: 3 попытки на каждую модель
+- Автоматический fallback: primary model → fallback model
+- Унифицированная валидация: v3, minimal, none, custom
+- Интеграция с TokenTracker
+- Автоматическое сохранение responses для debugging
+
+**Пример использования**:
+```python
+from src.llm_request import make_llm_request
+
+response, model = make_llm_request(
+    stage_name="generate_article",
+    messages=[{"role": "user", "content": "..."}],
+    temperature=0.3,
+    validation_level="v3",
+    token_tracker=tracker,
+    base_path="output/topic/08_generation"
+)
+```
+
+#### 2. src/llm_providers.py - Роутинг между провайдерами
+
+**Класс**: `LLMProviderRouter`
+
+**Поддерживаемые провайдеры**:
+- **OpenRouter**: DeepSeek FREE, Google Gemini FREE
+- **DeepSeek Direct**: deepseek-reasoner, deepseek-chat (для reasoning tasks)
+- **Google Direct**: Gemini с native web search (для fact-check)
+
+**Особенности**:
+- Автоматический выбор провайдера по имени модели
+- Client caching для performance
+- Unified response format (OpenAI-compatible)
+- Provider-specific features (web search для Google)
+
+#### 3. src/llm_validation.py - Система валидации
+
+**Класс**: `LLMResponseValidator`
+
+**Validation Levels**:
+
+1. **v3.0** - 6-level scientific validation:
+   - Compression ratio (gzip) - >4.0 threshold
+   - Shannon entropy - <2.5 bits threshold
+   - Character bigrams - <2% unique threshold
+   - Word density - valid range 5-40%
+   - Finish reason - только STOP/END_TURN
+   - Language check - cyrillic/latin verification
+
+2. **minimal** - Basic length check (100+ characters)
+
+3. **none** - Skip validation (для testing)
+
+4. **custom** - User-provided validator function
+
+**Кастомные валидаторы**:
+```python
+def translation_validator(text, original_length, **kwargs):
+    """Validates translation length ratio (80-125%)"""
+    # v3.0 validation first
+    success, reason = LLMResponseValidator._validate_v3(...)
+    if not success:
+        return False
+
+    # Length ratio check
+    ratio = len(text) / original_length
+    return 0.8 <= ratio <= 1.25
+```
+
+#### Retry & Fallback Flow
+
+```
+Primary Model (3 attempts with validation)
+  attempt 1 (delay 0s)
+     ↓ fail
+  attempt 2 (delay 2s)
+     ↓ fail
+  attempt 3 (delay 5s)
+     ↓ fail
+  ↓
+Fallback Model (3 attempts with validation)
+  attempt 1 (delay 0s)
+     ↓ fail
+  attempt 2 (delay 2s)
+     ↓ fail
+  attempt 3 (delay 5s)
+     ↓ fail
+  ↓
+Exception raised: "All models failed for stage"
+```
+
+**Delays**: Progressive backoff `[2s, 5s, 10s]` для каждой модели
+
+#### Мигрированные этапы
+
+**Все 7 LLM-зависимых этапов используют unified систему**:
+
+| Этап | Location | Fallback | Validation |
+|------|----------|----------|------------|
+| extract_sections | llm_processing.py:836 | ✅ Gemini | minimal |
+| create_structure | main.py:291 | ✅ Gemini | minimal |
+| generate_article | llm_processing.py:1075 | ✅ Gemini | v3.0 |
+| fact_check | llm_processing.py:1622 | ✅ Gemini | minimal |
+| link_placement | llm_processing.py:2144 | ✅ Gemini | minimal |
+| translation | llm_processing.py:2284 | ✅ Gemini | v3 + custom validator (80-125%) |
+| editorial_review | llm_processing.py:1822 | ✅ DeepSeek | minimal |
+
+#### Преимущества
+
+- ✅ **Reliability**: Автоматический fallback на ВСЕХ этапах (ранее только на 5)
+- ✅ **Maintainability**: 3 модуля вместо дублированного кода
+- ✅ **Consistency**: Единая retry/fallback/validation логика
+- ✅ **Debugging**: Автоматическое сохранение в `llm_responses_raw/`
+- ✅ **Extensibility**: Легко добавить новый provider или validation level
+- ✅ **Code reduction**: Удалено 206+ строк дублированного кода
+- ✅ **SOLID principles**: следование Single Responsibility, Open/Closed, Liskov Substitution
+
+#### Удаленный старый код
+
+- `_make_llm_request_with_retry()` - DELETED
+- `_make_llm_request_with_retry_sync()` - DELETED
+
+---
 
 ### Token Cleanup
 

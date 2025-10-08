@@ -113,7 +113,7 @@ content = "".join(content_parts)  # ВСЕ текстовые части
 
 ### 4. Editorial Review
 **Ожидаемый формат**: ОБЪЕКТ с метаданными
-**Модель**: `deepseek/deepseek-chat-v3.1:free` (форматирование без fact-check)
+**Модель**: `deepseek-reasoner` (форматирование без fact-check)
 
 ```json
 {

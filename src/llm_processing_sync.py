@@ -1,4 +1,13 @@
-from llm_processing import validate_content_quality
+import os
+import json
+import time
+from typing import List, Dict, Any
+
+from src.logger_config import logger
+from src.token_tracker import TokenTracker
+from src.config import LLM_MODELS, DEFAULT_MODEL, SECTION_MAX_RETRIES
+from src.llm_request import make_llm_request
+from src.llm_processing import validate_content_quality, _load_and_prepare_messages, save_llm_interaction
 
 def clean_llm_tokens(text: str) -> str:
     """Remove LLM-specific tokens from generated content."""
@@ -109,13 +118,14 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                 )
 
                 # Make SYNCHRONOUS request
-                response_obj, actual_model = _make_llm_request_with_retry_sync(
+                response_obj, actual_model = make_llm_request(
                     stage_name="generate_article",
                     model_name=model_name or LLM_MODELS.get("generate_article", DEFAULT_MODEL),
                     messages=messages,
                     token_tracker=token_tracker,
                     base_path=section_path,
-                    temperature=0.3
+                    temperature=0.3,
+                    validation_level="v3"
                 )
 
                 section_content = response_obj.choices[0].message.content

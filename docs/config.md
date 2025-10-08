@@ -36,26 +36,26 @@ WORDPRESS_APP_PASSWORD=xxxx xxxx xxxx xxxx
 ### Основные модели (DeepSeek FREE + Google Gemini):
 ```python
 LLM_MODELS = {
-    "extract_prompts": "deepseek/deepseek-chat-v3.1:free",              # FREE Model для извлечения промптов
-    "create_structure": "deepseek/deepseek-chat-v3.1:free",             # FREE Model для создания структуры
-    "generate_article": "deepseek/deepseek-chat-v3.1:free",             # FREE Model для генерации статей
+    "extract_sections": "deepseek-reasoner",                             # DeepSeek Reasoner для извлечения промптов
+    "create_structure": "deepseek-reasoner",                            # DeepSeek Reasoner для создания структуры
+    "generate_article": "deepseek-reasoner",                            # DeepSeek Reasoner для генерации статей
     "fact_check": "gemini-2.5-flash-preview-09-2025",                   # Google Gemini с нативным веб-поиском
     "link_placement": "gemini-2.5-flash-preview-09-2025",               # Google Gemini с нативным веб-поиском для поиска ссылок
-    "translation": "google/gemini-2.0-flash-exp:free",                  # TEMPORARY: Testing Gemini 2.0 Flash Exp for translation
-    "editorial_review": "deepseek/deepseek-chat-v3.1:free",             # FREE Model для редакторской правки
+    "translation": "deepseek-reasoner",                                 # DeepSeek Reasoner для перевода
+    "editorial_review": "deepseek-reasoner",                            # DeepSeek Reasoner для редакторской правки
 }
 ```
 
 ### Fallback модели:
 ```python
 FALLBACK_MODELS = {
-    "extract_prompts": "google/gemini-2.5-flash-lite-preview-06-17",
+    "extract_sections": "google/gemini-2.5-flash-lite-preview-06-17",
     "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",
     "fact_check": "gemini-2.5-flash",                                   # Stable Gemini 2.5 Flash with web search
     "link_placement": "gemini-2.5-flash",                               # Stable Gemini 2.5 Flash with web search
     "translation": "google/gemini-2.5-flash-lite-preview-06-17",        # Fallback для перевода
-    "editorial_review": "deepseek-reasoner",  # Direct DeepSeek API fallback with reasoning mode
+    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback для редакторской правки
 }
 ```
 

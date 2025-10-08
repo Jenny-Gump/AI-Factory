@@ -84,6 +84,7 @@ class QuietModeFilter(logging.Filter):
             "🤖",  # Model attempt logs
             "📝",  # Editorial review attempt
             "═══",  # Разделители этапов
+            "ЭТАП",  # Заголовки этапов
             "Section ",  # Компактный формат секций
             "Group ",  # Компактный формат групп fact-check
             "Pipeline interrupted"
