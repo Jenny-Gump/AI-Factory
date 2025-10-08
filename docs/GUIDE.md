@@ -303,6 +303,19 @@ python3 batch_processor.py topics.txt --resume
 
 # С кастомными моделями
 python3 batch_processor.py topics.txt --generate-model "deepseek-reasoner"
+
+# С переменными для кастомизации контента
+python3 batch_processor.py topics_guides.txt \
+  --content-type guides \
+  --author-style "technical" \
+  --theme-focus "cybersecurity" \
+  --target-audience "разработчики" \
+  --tone-of-voice "professional" \
+  --language "русский" \
+  --article-length 7000 \
+  --fact-check-mode off \
+  --link-placement-mode off \
+  --translation-mode off
 ```
 
 ### 3. Запуск с определенного этапа
