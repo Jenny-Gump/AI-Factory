@@ -568,7 +568,33 @@ if __name__ == "__main__":
     parser.add_argument("--extract-model", help="Override extraction model")
     parser.add_argument("--generate-model", help="Override generation model")
     parser.add_argument("--editorial-model", help="Override editorial model")
-    
+
+    # Variable arguments (same as main.py)
+    parser.add_argument('--article-length', type=int,
+                       help='Target article length in characters')
+    parser.add_argument('--author-style',
+                       help='Author style for writing (e.g., "academic", "conversational", "technical")')
+    parser.add_argument('--theme-focus',
+                       help='Theme focus for the content (e.g., "business", "technology", "education")')
+    parser.add_argument('--custom-requirements',
+                       help='Additional requirements for content generation')
+    parser.add_argument('--target-audience',
+                       help='Target audience for the article (e.g., "beginners", "professionals", "students")')
+    parser.add_argument('--tone-of-voice',
+                       help='Tone of voice (e.g., "formal", "friendly", "authoritative")')
+    parser.add_argument('--include-examples', action='store_true',
+                       help='Include practical examples in each section')
+    parser.add_argument('--seo-keywords',
+                       help='SEO keywords to naturally include (comma-separated)')
+    parser.add_argument('--language',
+                       help='Language for content writing (e.g., "русский", "english", "español")')
+    parser.add_argument('--translation-mode', choices=['on', 'off'], default='on',
+                       help='Enable (on) or disable (off) translation stage')
+    parser.add_argument('--fact-check-mode', choices=['on', 'off'], default='on',
+                       help='Enable (on) or disable (off) fact-checking stage')
+    parser.add_argument('--link-placement-mode', choices=['on', 'off'], default='on',
+                       help='Enable (on) or disable (off) link placement stage')
+
     args = parser.parse_args()
 
     # Configure logging FIRST before any operations
@@ -578,12 +604,16 @@ if __name__ == "__main__":
     # Подготовка model_overrides
     model_overrides = {}
     if args.extract_model:
-        model_overrides["extract_prompts"] = args.extract_model
+        model_overrides["extract_sections"] = args.extract_model
     if args.generate_model:
         model_overrides["generate_article"] = args.generate_model
     if args.editorial_model:
         model_overrides["editorial_review"] = args.editorial_model
-    
+
+    # Create variables manager from CLI arguments
+    from src.variables_manager import VariablesManager
+    variables_manager = VariablesManager.create_from_args(vars(args))
+
     # Запуск batch processor
     try:
         success = asyncio.run(run_batch_processor(
@@ -592,7 +622,8 @@ if __name__ == "__main__":
             model_overrides=model_overrides if model_overrides else None,
             resume=args.resume,
             skip_publication=args.skip_publication,
-            verbose=args.verbose
+            verbose=args.verbose,
+            variables_manager=variables_manager
         ))
         
         if success:

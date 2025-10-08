@@ -1,5 +1,174 @@
 # Content Factory Changelog
 
+## 🏗️ Version 2.3.2 - October 8, 2025
+
+### **MAJOR REFACTORING: Unified LLM Request System**
+
+#### **🔄 ARCHITECTURE OVERHAUL**
+
+**Создана централизованная система для всех LLM запросов** - полная замена дублированного кода:
+
+**Старая архитектура (v2.3.1):**
+- Дублированный retry/fallback код в каждом этапе
+- Отсутствие fallback на некоторых этапах (fact_check, link_placement, translation)
+- Разрозненная валидация
+- 206+ строк дублированного кода
+
+**Новая архитектура (v2.3.2):**
+- Единая точка входа: `make_llm_request()` в src/llm_request.py
+- Автоматический retry/fallback на ВСЕХ этапах (3×2 попытки)
+- Централизованная валидация (v3, minimal, none, custom)
+- Provider routing через LLMProviderRouter
+- Консистентная обработка ошибок
+
+#### **📦 NEW MODULES**
+
+**Created 3 core modules:**
+
+1. **src/llm_request.py** (444 lines)
+   - `LLMRequestHandler` класс с unified retry/fallback
+   - `make_llm_request()` - главная функция для всех LLM запросов
+   - Автоматическое сохранение responses для debugging
+   - Интеграция с TokenTracker
+
+2. **src/llm_providers.py** (409 lines)
+   - `LLMProviderRouter` класс для роутинга между провайдерами
+   - OpenRouter support (DeepSeek FREE, Google FREE)
+   - DeepSeek Direct API support (deepseek-reasoner, deepseek-chat)
+   - Google Direct API support (Gemini с native web search)
+   - Client caching для performance
+
+3. **src/llm_validation.py** (329 lines)
+   - `LLMResponseValidator` класс с 4 validation levels
+   - v3.0: 6-level scientific validation (compression, entropy, bigrams, word density, finish_reason, language)
+   - minimal: basic length check
+   - none: skip validation
+   - custom: user-provided validators
+   - `translation_validator()` с length ratio check 80-125%
+
+#### **🔧 MIGRATED STAGES**
+
+**Все 7 этапов мигрированы на новую систему:**
+
+| Этап | Location | Fallback | Status |
+|------|----------|----------|--------|
+| extract_structure | main.py:294 | ✅ Gemini | NEW FALLBACK |
+| create_structure | main.py | ✅ Gemini | MIGRATED |
+| generate_article | llm_processing.py:1075, llm_processing_sync.py:121 | ✅ Gemini | MIGRATED |
+| fact_check | llm_processing.py:1614 | ✅ Gemini | NEW FALLBACK ⭐ |
+| link_placement | llm_processing.py:2136 | ✅ Gemini | NEW FALLBACK ⭐ |
+| translation | llm_processing.py:2276 | ✅ Gemini + custom validator | NEW FALLBACK ⭐ |
+| editorial_review | llm_processing.py:1822 | ✅ DeepSeek | MIGRATED |
+
+**⭐ = Previously had NO fallback, now protected**
+
+#### **🗑️ DELETED CODE**
+
+**Removed old retry/fallback functions:**
+- `_make_llm_request_with_retry()` - DELETED (was 103 lines)
+- `_make_llm_request_with_retry_sync()` - DELETED (was 103 lines)
+- **Total lines removed**: 206+
+
+#### **🐛 BUG FIXES**
+
+1. **Fixed: UnboundLocalError в fact_check и link_placement**
+   - **Problem**: `group_section_titles` использовалась вне scope в exception handler
+   - **Location**: llm_processing.py lines 1677-1683, 2194-2200
+   - **Solution**: Переместили error handling внутрь `else` блока
+   - **Files**: llm_processing.py:1679-1691, 2196-2208
+
+2. **Fixed: Нумерация этапов (два "ЭТАП 8")**
+   - **Problem**: Извлечение структур было отдельным "ЭТАП 7", создавало конфликт с генерацией
+   - **Solution**: Извлечение структур теперь часть ЭТАП 1-6
+   - **Updated**: main.py - все упоминания этапов (13 мест)
+   - **New numbering**: ЭТАП 1-6 → 7 → 8 → 9 → 10 → 11 → 12 → 13
+
+3. **Fixed: Отсутствие fallback на critical этапах**
+   - **fact_check**: Теперь есть fallback на gemini-2.5-flash (NEW)
+   - **link_placement**: Теперь есть fallback на gemini-2.5-flash (NEW)
+   - **translation**: Теперь есть fallback + custom length validator (NEW)
+
+4. **Fixed: Отсутствие ЭТАП заголовков в терминале**
+   - **Problem**: QuietModeFilter не показывал строки с "ЭТАП X:"
+   - **Solution**: Добавлен паттерн `"ЭТАП"` в key_patterns
+   - **File**: src/logger_config.py:87
+
+#### **📚 DOCUMENTATION UPDATES**
+
+**Modified files:**
+1. **docs/TECHNICAL.md**
+   - Added new section "Unified LLM Request System (v2.3.2)" with detailed architecture
+   - Documented all 3 new modules
+   - Added retry/fallback flow diagram
+   - Added migration table for all 7 stages
+
+2. **README.md**
+   - Updated "12-этапный" → "13-этапный" пайплайн
+   - Updated "Надежность" section to reflect new unified system
+
+3. **CHANGELOG.md**
+   - This changelog
+
+#### **🎯 BENEFITS**
+
+- ✅ **Reliability**: Автоматический fallback на ВСЕХ этапах (было только на 4, теперь на 7)
+- ✅ **Maintainability**: 3 модуля вместо дублированного кода в каждом этапе
+- ✅ **Consistency**: Единая retry/fallback/validation логика везде
+- ✅ **Debugging**: Автоматическое сохранение responses в `llm_responses_raw/`
+- ✅ **Extensibility**: Легко добавить новый provider или validation level
+- ✅ **Code reduction**: Удалено 206+ строк дублированного кода
+- ✅ **SOLID principles**: Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion
+
+#### **⚠️ BREAKING CHANGES**
+
+None - все изменения внутренние, public API не изменился.
+
+#### **🔍 TECHNICAL DETAILS**
+
+**Request Flow**:
+```
+User Code
+   ↓
+make_llm_request(stage_name, messages)
+   ↓
+LLMRequestHandler.make_request()
+   ↓
+LLMProviderRouter.route_request()
+   ↓
+[OpenRouter | DeepSeek Direct | Google Direct]
+   ↓
+Response Object (unified format)
+   ↓
+LLMResponseValidator.validate()
+   ↓
+SUCCESS or RETRY
+```
+
+**Config Integration**:
+- Primary models: `LLM_MODELS[stage_name]` from src/config.py
+- Fallback models: `FALLBACK_MODELS[stage_name]` from src/config.py
+- Retry settings: `RETRY_CONFIG` from src/config.py
+- Provider routing: `get_provider_for_model()` from src/config.py
+
+**Files Modified**:
+- main.py (13 locations - stage numbering)
+- src/llm_processing.py (7 migration points + 2 bug fixes)
+- src/llm_processing_sync.py (1 migration point)
+- src/logger_config.py (1 filter update)
+
+**Files Created**:
+- src/llm_request.py (444 lines)
+- src/llm_providers.py (409 lines)
+- src/llm_validation.py (329 lines)
+
+**Total Impact**:
+- Lines added: 1182 (new modules)
+- Lines removed: 206 (old functions)
+- Net change: +976 lines
+- Maintainability: Significantly improved (centralized vs. scattered)
+
+---
+
 ## 🔍 Version 2.3.1 - October 7, 2025
 
 ### **ENHANCED LOGGING SYSTEM**
@@ -448,7 +617,7 @@ if not validate_content_quality(section_content, min_length=50):
 ```
 
 #### **📍 Integrated Stages**:
-- **Этап 7**: Извлечение структур (`extract_prompts`)
+- **Этап 7**: Извлечение структур (`extract_sections`)
 - **Этап 8**: Создание ультимативной структуры
 - **Этап 9**: Посекционная генерация (sync + async)
 - **Этап 9.5**: Факт-чекинг секций

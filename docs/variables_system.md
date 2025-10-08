@@ -103,7 +103,36 @@ python3 main.py "Нейронные сети" \
 
 ### Батч-обработка
 
-Переменные автоматически передаются в BatchProcessor:
+#### CLI батч-обработка
+
+Все переменные доступны через CLI флаги в batch_processor.py:
+
+```bash
+# Полный пример с всеми переменными
+python3 batch_processor.py topics_guides.txt \
+  --content-type guides \
+  --author-style "technical" \
+  --theme-focus "cybersecurity" \
+  --target-audience "разработчики" \
+  --tone-of-voice "professional" \
+  --language "русский" \
+  --custom-requirements "Больше примеров кода и реальных случаев" \
+  --article-length 7000 \
+  --include-examples \
+  --seo-keywords "безопасность, киберзащита, DevSecOps" \
+  --fact-check-mode off \
+  --link-placement-mode off \
+  --translation-mode off
+
+# Минимальный пример
+python3 batch_processor.py topics.txt \
+  --language "english" \
+  --author-style "conversational"
+```
+
+#### Программная батч-обработка
+
+Переменные автоматически передаются в BatchProcessor через код:
 
 ```python
 from batch_processor import run_batch_processor

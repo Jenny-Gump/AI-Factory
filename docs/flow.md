@@ -277,7 +277,7 @@ This document provides a detailed, step-by-step breakdown of the complete 12-sta
 **ЦЕЛЬ:** Извлечь структурные схемы из каждого источника - разделы, их назначение, фокус контента
 
 **ФУНКЦИИ:**
-- `extract_prompts_from_article()` с параметром `content_type="basic_articles"`
+- `extract_sections_from_article()` с параметром `content_type="basic_articles"`
 - LLM анализ через `basic_articles/01_extract.txt` промпт
 - Создание JSON схем для каждого источника
 
@@ -456,7 +456,7 @@ This document provides a detailed, step-by-step breakdown of the complete 12-sta
       "content": "<h2>Introduction</h2><p>Translated content...</p>",
       "status": "translated",
       "original_content": "Оригинальный контент...",
-      "translation_model": "google/gemini-2.0-flash-exp:free",
+      "translation_model": "deepseek-reasoner",
       "target_language": "english"
     }
   ]
@@ -797,9 +797,9 @@ WordPress: wordpress_data_final.json → WordPress API → draft post (опци�
 output/{topic}/
 ├── 06_structure_extraction/
 │   └── llm_responses_raw/
-│       ├── extract_prompts_response_attempt1_20250920_164532.txt
-│       ├── extract_prompts_response_attempt2_20250920_164545.txt
-│       └── ERROR_extract_prompts_response_attempt3_20250920_164558.txt
+│       ├── extract_sections_response_attempt1_20250920_164532.txt
+│       ├── extract_sections_response_attempt2_20250920_164545.txt
+│       └── ERROR_extract_sections_response_attempt3_20250920_164558.txt
 ├── 07_ultimate_structure/
 │   └── llm_responses_raw/
 │       └── create_structure_response_attempt1_20250920_164612.txt
@@ -821,7 +821,7 @@ output/{topic}/
 ```
 {stage_name}_response_attempt{N}_{timestamp}.txt
 ```
-- `stage_name`: extract_prompts, create_structure, generate_article, editorial_review
+- `stage_name`: extract_sections, create_structure, generate_article, editorial_review
 - `attempt{N}`: номер попытки (1, 2, 3)
 - `timestamp`: YYYYMMDD_HHMMSS
 
@@ -834,7 +834,7 @@ ERROR_{stage_name}_response_attempt{N}_{timestamp}.txt
 ### **Формат содержимого файла**
 ```
 TIMESTAMP: 2025-09-20T16:45:32.123456
-MODEL: deepseek/deepseek-chat-v3.1:free
+MODEL: deepseek-reasoner
 STAGE: editorial_review
 ATTEMPT: 1
 RESPONSE_LENGTH: 28820

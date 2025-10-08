@@ -1,3 +1,2 @@
-Deepseek local model installation guide step by step for beginners 
-Mistral local model installation guide step by step for beginners 
-Best local models guide step by step for beginners 
+Best local llm models guide step by step for beginners 
+10 best open source ChatGPT alternative guide for beginners 

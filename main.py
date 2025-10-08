@@ -14,7 +14,7 @@ from src.processing import (
     clean_content,
 )
 from src.llm_processing import (
-    extract_prompts_from_article,
+    extract_sections_from_article,
     generate_article_by_sections,  # NEW: for section-by-section generation
     translate_sections,  # NEW: for section-by-section translation
     fact_check_sections,  # NEW: for fact-checking individual sections
@@ -22,10 +22,10 @@ from src.llm_processing import (
     translate_content,  # OLD: for translating full content (kept for backward compatibility)
     editorial_review,
     _load_and_prepare_messages,
-    _make_llm_request_with_retry,
     save_llm_interaction,
     _parse_json_from_response
 )
+from src.llm_request import make_llm_request  # Unified LLM request with automatic fallback
 from src.wordpress_publisher import WordPressPublisher
 from src.token_tracker import TokenTracker
 from src.config import LLM_MODELS, FALLBACK_MODELS
@@ -196,10 +196,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     cleaned_sources = clean_content(top_sources)
     save_artifact(cleaned_sources, paths["cleaning"], "final_cleaned_sources.json")
 
-    # --- Этап 7: Извлечение структур (ПАРАЛЛЕЛЬНО) ---
-    logger.info("═" * 67)
-    logger.info(f" ЭТАП 7: Извлечение структур ({len(cleaned_sources)} источников)")
-    logger.info("═" * 67)
+    # --- Извлечение структур (часть ЭТАП 1-6) ---
     logger.info(f"Starting PARALLEL structure extraction from {len(cleaned_sources)} sources...")
 
     def extract_all_structures():
@@ -219,13 +216,13 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
                 logger.info(f"✅ {source_id} finished waiting, starting HTTP request...")
 
             try:
-                result = extract_prompts_from_article(
+                result = extract_sections_from_article(
                     article_text=source['cleaned_content'],
                     topic=topic,
                     base_path=paths["structure_extraction"],
                     source_id=source_id,
                     token_tracker=token_tracker,
-                    model_name=active_models.get("extract_prompts"),
+                    model_name=active_models.get("extract_sections"),
                     content_type=content_type,
                     variables_manager=variables_manager
                 )
@@ -275,9 +272,9 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.error("No structures could be extracted from the sources. Exiting.")
         return
 
-    # --- Этап 8: Создание ультимативной структуры ---
+    # --- Этап 7: Создание ультимативной структуры ---
     logger.info("═" * 67)
-    logger.info(f" ЭТАП 8: Создание ультимативной структуры ({len(all_structures)} структур)")
+    logger.info(f" ЭТАП 7: Создание ультимативной структуры ({len(all_structures)} структур)")
     logger.info("═" * 67)
     logger.info("Creating ultimate structure from extracted structures...")
 
@@ -289,70 +286,75 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         stage_name="create_structure"
     )
 
-    # Try with primary model first, then fallback if JSON parsing fails
-    ultimate_structure = None
-    models_to_try = [
-        active_models.get("create_structure"),
-        FALLBACK_MODELS.get("create_structure")  # google/gemini-2.5-flash-lite-preview-06-17
-    ]
+    # Use unified LLM request with automatic fallback
+    try:
+        response_obj, actual_model = make_llm_request(
+            stage_name="create_structure",
+            messages=messages,
+            temperature=0.3,
+            token_tracker=token_tracker,
+            base_path=paths["ultimate_structure"],
+            validation_level="minimal"  # Create structure uses minimal validation
+        )
 
-    for model_idx, current_model in enumerate(models_to_try):
-        if not current_model or (model_idx > 0 and current_model == models_to_try[0]):
-            continue  # Skip if no fallback or same as primary
+        content = response_obj.choices[0].message.content
+        save_llm_interaction(
+            base_path=paths["ultimate_structure"],
+            stage_name="create_structure",
+            messages=messages,
+            response=content,
+            request_id="ultimate_structure"
+        )
 
-        model_label = "primary" if model_idx == 0 else "fallback"
+        ultimate_structure = _parse_json_from_response(content)
 
-        for attempt in range(1, 4):  # 3 attempts per model
-            try:
-                logger.info(f"🔄 Create structure attempt {attempt}/3 with {model_label} model: {current_model}")
+        # DEBUG: Log what we got
+        logger.info(f"🔍 DEBUG: ultimate_structure type = {type(ultimate_structure)}")
+        logger.info(f"🔍 DEBUG: ultimate_structure value = {ultimate_structure if isinstance(ultimate_structure, (list, dict)) and len(str(ultimate_structure)) < 500 else str(ultimate_structure)[:500]}")
 
-                response_obj, actual_model = _make_llm_request_with_retry(
-                    stage_name="create_structure",
-                    model_name=current_model,
-                    messages=messages,
-                    token_tracker=token_tracker,
-                    base_path=paths["ultimate_structure"],
-                    temperature=0.3
-                )
+        if ultimate_structure and ultimate_structure != []:
+            logger.info(f"✅ Successfully created ultimate structure with {actual_model}")
 
-                content = response_obj.choices[0].message.content
-                save_llm_interaction(
-                    base_path=paths["ultimate_structure"],
-                    stage_name="create_structure",
-                    messages=messages,
-                    response=content,
-                    request_id=f"ultimate_structure_{model_label}_attempt{attempt}"
-                )
+            # Normalize structure: handle both dict and list formats
+            if isinstance(ultimate_structure, list):
+                # LLM returned array instead of object - wrap it
+                logger.warning("⚠️ LLM returned array instead of object with article_structure - normalizing")
+                ultimate_structure = {
+                    "article_structure": ultimate_structure,
+                    "writing_guidelines": {}
+                }
+            elif isinstance(ultimate_structure, dict):
+                # Check if it has expected keys
+                if "article_structure" not in ultimate_structure:
+                    logger.warning("⚠️ Missing 'article_structure' key - treating as sections array")
+                    ultimate_structure = {
+                        "article_structure": ultimate_structure.get("sections", [ultimate_structure]),
+                        "writing_guidelines": ultimate_structure.get("writing_guidelines", {})
+                    }
 
-                ultimate_structure = _parse_json_from_response(content)
+            # DEBUG: After normalization
+            logger.info(f"🔍 DEBUG AFTER normalization: type = {type(ultimate_structure)}, has article_structure = {'article_structure' in ultimate_structure if isinstance(ultimate_structure, dict) else 'N/A'}")
 
-                if ultimate_structure and ultimate_structure != []:
-                    logger.info(f"✅ Successfully parsed structure with {current_model} on attempt {attempt}")
-                    save_artifact(ultimate_structure, paths["ultimate_structure"], "ultimate_structure.json")
-                    break
-                else:
-                    logger.warning(f"❌ Invalid JSON from {current_model} on attempt {attempt}")
-                    if attempt < 3:
-                        time.sleep(2)  # Small delay before retry
-                    elif model_idx == 0 and models_to_try[1]:
-                        logger.warning(f"🔄 Primary model failed, switching to fallback model...")
+            save_artifact(ultimate_structure, paths["ultimate_structure"], "ultimate_structure.json")
+        else:
+            logger.error("Failed to parse JSON from create_structure response")
+            ultimate_structure = None
 
-            except Exception as e:
-                logger.error(f"Error with {current_model} on attempt {attempt}: {e}", exc_info=True)
-                if attempt < 3:
-                    time.sleep(2)
-
-        if ultimate_structure:
-            break
+    except Exception as e:
+        logger.error(f"Failed to create ultimate structure: {e}", exc_info=True)
+        ultimate_structure = None
 
     if not ultimate_structure or ultimate_structure == []:
         logger.error("Failed to create valid structure with all models and attempts. Exiting.")
         return
 
-    # --- Этап 9: Генерация WordPress статьи по секциям ---
-    total_sections = len(ultimate_structure.get("sections", []))
+    # DEBUG: Before accessing article_structure
+    logger.info(f"🔍 DEBUG BEFORE stage 8: type = {type(ultimate_structure)}, keys = {list(ultimate_structure.keys()) if isinstance(ultimate_structure, dict) else 'NOT A DICT'}")
+
+    # --- Этап 8: Генерация WordPress статьи по секциям ---
+    total_sections = len(ultimate_structure.get("article_structure", []))
     logger.info("═" * 67)
-    logger.info(f" ЭТАП 9: Генерация статьи ({total_sections} секций)")
+    logger.info(f" ЭТАП 8: Генерация статьи ({total_sections} секций)")
     logger.info("═" * 67)
     logger.info("Generating WordPress-ready article from ultimate structure (section by section)...")
 
@@ -380,38 +382,62 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.error("No generated sections found for processing. Exiting.")
         return
 
-    # --- Этап 10: Translation по секциям ---
+    # --- Этап 9: Translation по секциям ---
     target_language = variables_manager.active_variables.get("language") if variables_manager else "русский"
     logger.info("═" * 67)
-    logger.info(f" ЭТАП 10: Перевод секций ({len(generated_sections)} секций → {target_language})")
+    logger.info(f" ЭТАП 9: Перевод секций ({len(generated_sections)} секций → {target_language})")
     logger.info("═" * 67)
-    logger.info(f"🌍 Starting section-by-section translation to {target_language}...")
 
-    translated_sections, translation_status = translate_sections(
-        sections=generated_sections,
-        target_language=target_language,
-        topic=topic,
-        base_path=paths["translation"],
-        token_tracker=token_tracker,
-        model_name=active_models.get("translation"),
-        content_type=content_type,
-        variables_manager=variables_manager
-    )
+    # Check translation mode from variables
+    translation_mode = variables_manager.active_variables.get("translation_mode", "on") if variables_manager else "on"
 
-    # Save translation status
-    save_artifact(translation_status, paths["translation"], "translation_status.json")
+    if translation_mode == "off":
+        logger.info("🚫 TRANSLATION DISABLED by user - using generated sections directly")
 
-    if not translation_status.get("success"):
-        logger.warning(f"⚠️ Translation completed with {len(translation_status['failed_sections'])} failures")
+        # Use generated sections as "translated" (no actual translation)
+        translated_sections = generated_sections
+
+        # Create translation directory and fake status for compatibility
+        os.makedirs(paths["translation"], exist_ok=True)
+        translation_status = {
+            "success": True,
+            "translated_sections": len(generated_sections),
+            "failed_sections": [],
+            "error_details": [],
+            "bypassed": True
+        }
+        save_artifact(translation_status, paths["translation"], "translation_status.json")
+        save_artifact({"sections": translated_sections}, paths["translation"], "translated_sections.json")
+
+        logger.info(f"✅ Translation bypassed: Using {len(translated_sections)} sections without translation")
     else:
-        logger.info(f"✅ All {translation_status['translated_sections']} sections translated successfully")
+        logger.info(f"🌍 Starting section-by-section translation to {target_language}...")
 
-    # Save translated sections for reference
-    save_artifact({"sections": translated_sections}, paths["translation"], "translated_sections.json")
+        translated_sections, translation_status = translate_sections(
+            sections=generated_sections,
+            target_language=target_language,
+            topic=topic,
+            base_path=paths["translation"],
+            token_tracker=token_tracker,
+            model_name=active_models.get("translation"),
+            content_type=content_type,
+            variables_manager=variables_manager
+        )
 
-    # --- Этап 11: Fact-checking секций (на переведенном тексте) ---
+        # Save translation status
+        save_artifact(translation_status, paths["translation"], "translation_status.json")
+
+        if not translation_status.get("success"):
+            logger.warning(f"⚠️ Translation completed with {len(translation_status['failed_sections'])} failures")
+        else:
+            logger.info(f"✅ All {translation_status['translated_sections']} sections translated successfully")
+
+        # Save translated sections for reference
+        save_artifact({"sections": translated_sections}, paths["translation"], "translated_sections.json")
+
+    # --- Этап 10: Fact-checking секций (на переведенном тексте) ---
     logger.info("═" * 67)
-    logger.info(f" ЭТАП 11: Fact-checking ({len(translated_sections)} секций)")
+    logger.info(f" ЭТАП 10: Fact-checking ({len(translated_sections)} секций)")
     logger.info("═" * 67)
 
     # Check fact-check mode from variables
@@ -494,9 +520,9 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.info(f"✅ Fact-checking passed: All {fact_check_status.get('total_groups', 0)} groups verified")
         logger.info(f"Fact-checking completed: Combined content length: {len(fact_checked_content)} characters")
 
-    # --- Этап 12: Link Placement (на переведенном и fact-checked тексте) ---
+    # --- Этап 11: Link Placement (на переведенном и fact-checked тексте) ---
     logger.info("═" * 67)
-    logger.info(f" ЭТАП 12: Link Placement ({len(translated_sections)} секций)")
+    logger.info(f" ЭТАП 11: Link Placement ({len(translated_sections)} секций)")
     logger.info("═" * 67)
     link_placement_mode = variables_manager.active_variables.get("link_placement_mode", "on") if variables_manager else "on"
 
@@ -534,9 +560,9 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
 
         logger.info(f"✅ Link placement completed: {len(content_with_links)} chars")
 
-    # --- Этап 13: Editorial Review ---
+    # --- Этап 12: Editorial Review ---
     logger.info("═" * 67)
-    logger.info(" ЭТАП 13: Editorial Review (финальная обработка)")
+    logger.info(" ЭТАП 12: Editorial Review (финальная обработка)")
     logger.info("═" * 67)
     logger.info("Starting editorial review and cleanup...")
 
@@ -573,10 +599,10 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.warning("Editorial review returned invalid structure, using original data")
         wordpress_data_final = wordpress_data
 
-    # --- Этап 14 (опциональный): WordPress Publication ---
+    # --- Этап 13 (опциональный): WordPress Publication ---
     if publish_to_wordpress:
         logger.info("═" * 67)
-        logger.info(" ЭТАП 14: WordPress Publication")
+        logger.info(" ЭТАП 13: WordPress Publication")
         logger.info("═" * 67)
         logger.info("Starting WordPress publication...")
         try:
@@ -651,6 +677,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
 
     # Создание путей к этапам (обновлено для v2.3.0)
     paths = {
+        "ultimate_structure": os.path.join(base_output_path, "07_ultimate_structure"),
         "final_article": os.path.join(base_output_path, "08_article_generation"),
         "translation": os.path.join(base_output_path, "09_translation"),
         "fact_check": os.path.join(base_output_path, "10_fact_check"),
@@ -665,7 +692,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
 
     if stage == "fact_check":
         logger.info("═" * 67)
-        logger.info(" ЭТАП 11: Fact-checking (запуск с этапа)")
+        logger.info(" ЭТАП 10: Fact-checking (запуск с этапа)")
         logger.info("═" * 67)
 
         # Load translated_sections from 09_translation
@@ -714,7 +741,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
 
     elif stage == "link_placement":
         logger.info("═" * 67)
-        logger.info(" ЭТАП 12: Link Placement (запуск с этапа)")
+        logger.info(" ЭТАП 11: Link Placement (запуск с этапа)")
         logger.info("═" * 67)
 
         # Load translated_sections from 09_translation
@@ -761,9 +788,45 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         token_summary = token_tracker.get_session_summary()
         logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
 
+    elif stage == "generate_article":
+        logger.info("═" * 67)
+        logger.info(" ЭТАП 8: Генерация статьи (запуск с этапа)")
+        logger.info("═" * 67)
+
+        # Load ultimate_structure from 07_ultimate_structure
+        structure_path = os.path.join(paths["ultimate_structure"], "ultimate_structure.json")
+        if not os.path.exists(structure_path):
+            logger.error(f"Required file not found: {structure_path}")
+            logger.error("Run full pipeline first to create ultimate structure")
+            return
+
+        with open(structure_path, 'r', encoding='utf-8') as f:
+            ultimate_structure = json.load(f)
+
+        logger.info(f"Loaded ultimate structure from {structure_path}")
+
+        from src.llm_processing import generate_article_by_sections
+
+        wordpress_data = generate_article_by_sections(
+            structure=ultimate_structure,
+            topic=topic,
+            base_path=paths["final_article"],
+            token_tracker=token_tracker,
+            model_name=active_models.get("generate_article"),
+            content_type=content_type,
+            variables_manager=variables_manager
+        )
+
+        save_artifact(wordpress_data, paths["final_article"], "wordpress_data.json")
+        logger.info(f"✅ Article generation completed successfully")
+
+        # Show token statistics
+        token_summary = token_tracker.get_session_summary()
+        logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
+
     elif stage == "translation":
         logger.info("═" * 67)
-        logger.info(" ЭТАП 10: Перевод секций (запуск с этапа)")
+        logger.info(" ЭТАП 9: Перевод секций (запуск с этапа)")
         logger.info("═" * 67)
 
         # Get target language (default to русский if not specified)
@@ -815,7 +878,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
 
     elif stage == "editorial_review":
         logger.info("═" * 67)
-        logger.info(" ЭТАП 13: Editorial Review (запуск с этапа)")
+        logger.info(" ЭТАП 12: Editorial Review (запуск с этапа)")
         logger.info("═" * 67)
 
         # Try to load content in correct order: link_placement → fact_check → translation
@@ -889,7 +952,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
 
     elif stage == "publication":
         logger.info("═" * 67)
-        logger.info(" ЭТАП 14: WordPress Publication (запуск с этапа)")
+        logger.info(" ЭТАП 13: WordPress Publication (запуск с этапа)")
         logger.info("═" * 67)
 
         # Загрузить готовый wordpress_data_final.json
@@ -947,7 +1010,7 @@ if __name__ == "__main__":
                        default='basic_articles', help='Type of content to generate')
     parser.add_argument('--skip-publication', action='store_true',
                        help='Skip WordPress publication')
-    parser.add_argument('--start-from-stage', choices=['translation', 'fact_check', 'link_placement', 'editorial_review', 'publication'],
+    parser.add_argument('--start-from-stage', choices=['generate_article', 'translation', 'fact_check', 'link_placement', 'editorial_review', 'publication'],
                        help='Start pipeline from specific stage (requires existing output folder)')
     parser.add_argument('--verbose', action='store_true',
                        help='Show detailed debug logs (default: show only key events)')
@@ -971,6 +1034,8 @@ if __name__ == "__main__":
                        help='SEO keywords to naturally include (comma-separated)')
     parser.add_argument('--language',
                        help='Language for content writing (e.g., "русский", "english", "español")')
+    parser.add_argument('--translation-mode', choices=['on', 'off'], default='on',
+                       help='Enable (on) or disable (off) translation stage')
     parser.add_argument('--fact-check-mode', choices=['on', 'off'], default='on',
                        help='Enable (on) or disable (off) fact-checking stage')
     parser.add_argument('--link-placement-mode', choices=['on', 'off'], default='on',

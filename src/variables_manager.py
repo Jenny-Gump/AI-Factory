@@ -148,6 +148,7 @@ class VariablesManager:
             'include_examples': args_dict.get('include_examples'),
             'seo_keywords': args_dict.get('seo_keywords'),
             'language': args_dict.get('language'),
+            'translation_mode': args_dict.get('translation_mode', 'on'),
             'fact_check_mode': args_dict.get('fact_check_mode', 'on'),
             'link_placement_mode': args_dict.get('link_placement_mode', 'on')
         }

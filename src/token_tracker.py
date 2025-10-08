@@ -43,9 +43,9 @@ class TokenTracker:
                   extra_metadata: Optional[Dict] = None) -> None:
         """
         Record token usage from an LLM request.
-        
+
         Args:
-            stage: Pipeline stage (e.g., "extract_prompts", "generate_article")
+            stage: Pipeline stage (e.g., "extract_sections", "generate_article")
             usage: CompletionUsage object from OpenAI response
             source_id: Optional source identifier (e.g., "source_1")
             url: Optional source URL

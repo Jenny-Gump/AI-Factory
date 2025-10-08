@@ -12,6 +12,7 @@ import openai
 from src.logger_config import logger
 from src.token_tracker import TokenTracker
 from src.config import LLM_MODELS, DEFAULT_MODEL, LLM_PROVIDERS, get_provider_for_model, FALLBACK_MODELS, RETRY_CONFIG, SECTION_TIMEOUT, MODEL_TIMEOUT, SECTION_MAX_RETRIES
+from src.llm_request import make_llm_request
 
 # Загружаем переменные среды
 load_dotenv()
@@ -285,7 +286,7 @@ def save_llm_interaction(base_path: str, stage_name: str, messages: List[Dict],
     
     Args:
         base_path: Базовый путь для сохранения (например, paths["extraction"])
-        stage_name: Название этапа (например, "extract_prompts")
+        stage_name: Название этапа (например, "extract_sections")
         messages: Сообщения, отправленные в LLM
         response: Сырой ответ от LLM
         request_id: ID запроса для множественных запросов (например, source_1)
@@ -343,7 +344,7 @@ def _parse_json_from_response(response_content: str, stage_context: str = "unkno
 
     ДЕФОЛТНЫЕ ФОРМАТЫ ПО ЭТАПАМ:
     - ultimate_structure: объект {"article_structure": [...], "writing_guidelines": {...}}
-    - extract_prompts: массив структур [{"section_title": ..., ...}, ...]
+    - extract_sections: массив структур [{"section_title": ..., ...}, ...]
     - other stages: чаще массив, иногда объект
 
     Args:
@@ -631,7 +632,15 @@ async def _make_llm_request_with_timeout(stage_name: str, model_name: str, messa
         try:
             # Make request with timeout
             def make_request():
-                return _make_llm_request_with_retry_sync(stage_name, current_model, messages, token_tracker, base_path, **kwargs)
+                return make_llm_request(
+                    stage_name=stage_name,
+                    model_name=current_model,
+                    messages=messages,
+                    token_tracker=token_tracker,
+                    base_path=base_path,
+                    validation_level="v3",
+                    **kwargs
+                )
 
             loop = asyncio.get_event_loop()
             response_obj, actual_model = await asyncio.wait_for(
@@ -796,216 +805,7 @@ def _make_google_direct_request(model_name: str, messages: list, **kwargs):
     return response_obj
 
 
-def _make_llm_request_with_retry_sync(stage_name: str, model_name: str, messages: list,
-                                token_tracker: TokenTracker = None, base_path: str = None,
-                                target_language: str = None, **kwargs) -> tuple:
-    """
-    Synchronous version of LLM request with retry logic (no timeout handling).
-    Used by async timeout wrapper.
-
-    Args:
-        target_language: Target language for translation validation (e.g., 'ru' for Russian)
-
-    Returns:
-        tuple: (response_obj, actual_model_used)
-    """
-    for attempt in range(RETRY_CONFIG["max_attempts"]):
-        try:
-            client = get_llm_client(model_name)
-            provider = get_provider_for_model(model_name)
-
-            # Handle Google's direct API
-            if client == "google_direct":
-                response_obj = _make_google_direct_request(model_name, messages, **kwargs)
-            else:
-                # Add provider preferences for OpenRouter (ONLY for DeepSeek models)
-                if provider == "openrouter":
-                    # Apply provider preferences ONLY for DeepSeek models
-                    if "deepseek" in model_name.lower():
-                        provider_config = LLM_PROVIDERS.get(provider, {})
-                        provider_prefs = provider_config.get("provider_preferences")
-                        if provider_prefs:
-                            kwargs["extra_body"] = {"provider": provider_prefs}
-                            logger.info(f"🔧 Applying provider preferences for {model_name}: {provider_prefs}")
-                    else:
-                        logger.info(f"🔧 Skipping provider preferences for non-DeepSeek model: {model_name}")
-
-                logger.info(f"🔧 API call kwargs keys: {list(kwargs.keys())}")
-                logger.info(f"🔧 API call kwargs full: {kwargs}")
-                response_obj = client.chat.completions.create(
-                    model=model_name,
-                    messages=messages,
-                    **kwargs
-                )
-
-            # СОХРАНЕНИЕ СЫРОГО ОТВЕТА В ПАПКЕ ЭТАПА
-            # СНАЧАЛА сохраняем ВЕСЬ response_obj чтобы не потерять данные при ошибке извлечения
-            if base_path:
-                try:
-                    responses_dir = os.path.join(base_path, "llm_responses_raw")
-                    os.makedirs(responses_dir, exist_ok=True)
-
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-                    # Сохранить ПОЛНЫЙ response_obj как JSON
-                    raw_obj_file = os.path.join(responses_dir, f"{stage_name}_raw_obj_attempt{attempt+1}_{timestamp}.json")
-                    with open(raw_obj_file, 'w', encoding='utf-8') as f:
-                        # Пробуем model_dump(), если не работает - сохраняем как dict
-                        if hasattr(response_obj, 'model_dump'):
-                            json.dump(response_obj.model_dump(), f, indent=2, ensure_ascii=False)
-                        elif hasattr(response_obj, 'dict'):
-                            json.dump(response_obj.dict(), f, indent=2, ensure_ascii=False)
-                        else:
-                            f.write(str(response_obj))
-                    logger.info(f"💾 RAW RESPONSE_OBJ SAVED: {raw_obj_file}")
-                except Exception as save_error:
-                    logger.error(f"❌ Failed to save raw response_obj: {save_error}")
-
-            # ПОТОМ пытаемся извлечь content
-            raw_response_content = response_obj.choices[0].message.content
-
-            # КРИТИЧЕСКАЯ ПРОВЕРКА: Пустой ответ = ошибка (нужен retry)
-            if not raw_response_content or len(raw_response_content.strip()) == 0:
-                logger.warning(f"⚠️ API returned empty content (attempt {attempt + 1})")
-                raise Exception(f"Empty response from model on attempt {attempt + 1}")
-
-            # Get finish_reason for validation
-            finish_reason = response_obj.choices[0].finish_reason
-
-            # КРИТИЧЕСКАЯ ВАЛИДАЦИЯ: v3.0 только для этапов 8, 9
-            # Этапы: generate_article (8), translation (9)
-            # Этап 12 (editorial_review) использует минимальную валидацию (length > 100)
-            apply_v3_validation = any(keyword in stage_name for keyword in ['generate_article', 'translation'])
-
-            if apply_v3_validation:
-                # v3.0 Multi-level validation (compression, entropy, bigrams, etc.)
-                success, reason = validate_content_quality_v3(
-                    content=raw_response_content,
-                    min_length=300,
-                    target_language=target_language,
-                    finish_reason=finish_reason
-                )
-                if not success:
-                    content_preview = raw_response_content[:100] + "..." if len(raw_response_content) > 100 else raw_response_content
-                    logger.warning(f"⚠️ Content quality validation v3.0 failed (attempt {attempt + 1}): {reason}")
-                    logger.warning(f"   Length: {len(raw_response_content)} chars, Preview: {content_preview}")
-                    raise Exception(f"Content quality validation failed on attempt {attempt + 1}: {reason}")
-            else:
-                # Минимальная валидация для других этапов (7, 10, 11)
-                if len(raw_response_content.strip()) < 100:
-                    logger.warning(f"⚠️ Content too short (attempt {attempt + 1}): {len(raw_response_content)} chars")
-                    raise Exception(f"Content too short: {len(raw_response_content)} chars")
-
-            # Validation passed - save response with SUCCESS flag
-            if base_path:
-                try:
-                    responses_dir = os.path.join(base_path, "llm_responses_raw")
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    response_file = os.path.join(responses_dir, f"{stage_name}_response_attempt{attempt+1}_{timestamp}.txt")
-
-                    with open(response_file, 'w', encoding='utf-8') as f:
-                        f.write(f"TIMESTAMP: {datetime.now().isoformat()}\n")
-                        f.write(f"MODEL: {model_name}\n")
-                        f.write(f"STAGE: {stage_name}\n")
-                        f.write(f"ATTEMPT: {attempt + 1}\n")
-                        f.write(f"RESPONSE_LENGTH: {len(raw_response_content)}\n")
-                        f.write(f"VALIDATION: PASSED\n")
-                        f.write(f"SUCCESS: True\n")
-                        f.write("=" * 80 + "\n")
-                        f.write(raw_response_content)
-                except Exception as save_error:
-                    logger.error(f"❌ Failed to save validated response: {save_error}")
-
-            # Track token usage with actual model info
-            if token_tracker and response_obj.usage:
-                provider = get_provider_for_model(model_name)
-                token_tracker.add_usage(
-                    stage=stage_name,
-                    usage=response_obj.usage,
-                    extra_metadata={
-                        "model": model_name,
-                        "provider": provider,
-                        "attempt": attempt + 1
-                    }
-                )
-
-            return response_obj, model_name
-
-        except Exception as e:
-            logger.warning(f"❌ Model {model_name} failed (attempt {attempt + 1}): {e}")
-
-            # СОХРАНЕНИЕ ОШИБОЧНОГО ОТВЕТА В ПАПКЕ ЭТАПА (если ответ получен, но с ошибкой парсинга)
-            if base_path and "response_obj" in locals() and hasattr(response_obj, 'choices') and response_obj.choices:
-                try:
-                    error_response_content = response_obj.choices[0].message.content
-                    responses_dir = os.path.join(base_path, "llm_responses_raw")
-                    os.makedirs(responses_dir, exist_ok=True)
-
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    error_file = os.path.join(responses_dir, f"ERROR_{stage_name}_response_attempt{attempt+1}_{timestamp}.txt")
-
-                    with open(error_file, 'w', encoding='utf-8') as f:
-                        f.write(f"TIMESTAMP: {datetime.now().isoformat()}\n")
-                        f.write(f"MODEL: {model_name}\n")
-                        f.write(f"STAGE: {stage_name}\n")
-                        f.write(f"ATTEMPT: {attempt + 1}\n")
-                        f.write(f"ERROR: {str(e)}\n")
-                        f.write(f"RESPONSE_LENGTH: {len(error_response_content)}\n")
-                        f.write(f"SUCCESS: False\n")
-                        f.write("=" * 80 + "\n")
-                        f.write(error_response_content)
-                    logger.error(f"💾 ERROR RESPONSE SAVED: {error_file}")
-                except Exception as save_error:
-                    logger.error(f"❌ Failed to save error response: {save_error}")
-
-            # If not the last attempt, wait before retrying
-            if attempt < RETRY_CONFIG["max_attempts"] - 1:
-                delay = RETRY_CONFIG["delays"][attempt]
-                logger.info(f"⏳ Waiting {delay}s before retry...")
-                time.sleep(delay)
-            else:
-                logger.error(f"💥 Model {model_name} exhausted all {RETRY_CONFIG['max_attempts']} attempts")
-
-    # Model failed after all retries
-    raise Exception(f"Model {model_name} failed for {stage_name} after {RETRY_CONFIG['max_attempts']} attempts")
-
-
-def _make_llm_request_with_retry(stage_name: str, model_name: str, messages: list,
-                                token_tracker: TokenTracker = None, base_path: str = None,
-                                target_language: str = None, **kwargs) -> tuple:
-    """
-    Legacy wrapper for backward compatibility. Uses the old sync retry logic.
-    """
-    # Extract base stage name for config lookup (e.g. "translation_section_1" -> "translation")
-    base_stage_name = stage_name.split("_section_")[0] if "_section_" in stage_name else stage_name
-
-    primary_model = model_name or LLM_MODELS.get(base_stage_name, DEFAULT_MODEL)
-    fallback_model = FALLBACK_MODELS.get(base_stage_name)
-
-    models_to_try = [primary_model]
-    if fallback_model and fallback_model != primary_model:
-        models_to_try.append(fallback_model)
-        logger.info(f"📌 Fallback model available for {stage_name}: {fallback_model}")
-    else:
-        logger.info(f"⚠️ No fallback model configured for {stage_name}, will only try primary model")
-
-    for model_index, current_model in enumerate(models_to_try):
-        model_label = "primary" if model_index == 0 else "fallback"
-        logger.info(f"🤖 Using {model_label} model for {stage_name}: {current_model}")
-
-        try:
-            return _make_llm_request_with_retry_sync(stage_name, current_model, messages, token_tracker, base_path, target_language, **kwargs)
-        except Exception as e:
-            logger.warning(f"❌ Model {current_model} failed ({model_label}): {e}")
-            if model_index == len(models_to_try) - 1:  # Last model
-                logger.error(f"🚨 All models failed for stage {stage_name}. Models tried: {models_to_try}")
-                raise Exception(f"All models failed for {stage_name}: {models_to_try}")
-            else:
-                logger.info(f"🔄 Trying fallback model...")
-                continue
-
-
-def extract_prompts_from_article(article_text: str, topic: str, base_path: str = None,
+def extract_sections_from_article(article_text: str, topic: str, base_path: str = None,
                                  source_id: str = None, token_tracker: TokenTracker = None,
                                  model_name: str = None, content_type: str = "basic_articles",
                                  variables_manager=None) -> List[Dict]:
@@ -1028,17 +828,18 @@ def extract_prompts_from_article(article_text: str, topic: str, base_path: str =
             "01_extract",
             {"topic": topic, "article_text": article_text},
             variables_manager=variables_manager,
-            stage_name="extract_prompts"
+            stage_name="extract_sections"
         )
 
-        # Use new retry system
-        response, actual_model = _make_llm_request_with_retry(
-            stage_name="extract_prompts",
-            model_name=model_name,
+        # Use unified LLM request system
+        from src.llm_request import make_llm_request
+        response, actual_model = make_llm_request(
+            stage_name="extract_sections",
             messages=messages,
+            temperature=0.3,
             token_tracker=token_tracker,
             base_path=base_path,
-            temperature=0.3,
+            validation_level="minimal"  # Extract prompts uses minimal validation
         )
         content = response.choices[0].message.content
         content = clean_llm_tokens(content)  # Очищаем токены LLM
@@ -1047,7 +848,7 @@ def extract_prompts_from_article(article_text: str, topic: str, base_path: str =
         if base_path:
             save_llm_interaction(
                 base_path=base_path,
-                stage_name="extract_prompts",
+                stage_name="extract_sections",
                 messages=messages,
                 response=content,
                 request_id=source_id or "single",
@@ -1269,15 +1070,15 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                     stage_name="generate_article"
                 )
 
-                # Make SYNCHRONOUS request
-                current_model = model_name or LLM_MODELS.get("generate_article", DEFAULT_MODEL)
-                response_obj, actual_model = _make_llm_request_with_retry_sync(
+                # Use unified LLM request with automatic fallback
+                from src.llm_request import make_llm_request
+                response_obj, actual_model = make_llm_request(
                     stage_name="generate_article",
-                    model_name=current_model,
                     messages=messages,
+                    temperature=0.3,
                     token_tracker=token_tracker,
                     base_path=section_path,
-                    temperature=0.3
+                    validation_level="v3"  # Generate article uses v3.0 validation
                 )
 
                 section_content = response_obj.choices[0].message.content
@@ -1818,13 +1619,14 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                 group_path = os.path.join(base_path, f"group_{group_num}") if base_path else None
 
                 # Make fact-check request
-                response_obj, actual_model = _make_llm_request_with_retry(
+                response_obj, actual_model = make_llm_request(
                     stage_name="fact_check",
                     model_name=model_name or LLM_MODELS.get("fact_check"),
                     messages=messages,
                     token_tracker=token_tracker,
                     base_path=group_path,
-                    temperature=0.2  # Low temperature for factual accuracy
+                    temperature=0.2,  # Low temperature for factual accuracy
+                    validation_level="minimal"  # Fact-check uses minimal validation (doc: short factual answers)
                 )
 
                 fact_checked_content = response_obj.choices[0].message.content
@@ -1874,19 +1676,19 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                     fact_check_status["failed_groups"] += 1
                     group_section_titles = [section.get("section_title", "Untitled Section") for section in group]
                     fact_check_status["failed_sections"].extend(group_section_titles)
-            fact_check_status["error_details"].append({
-                "group": group_num,
-                "sections": group_section_titles,
-                "error": str(e)
-            })
+                    fact_check_status["error_details"].append({
+                        "group": group_num,
+                        "sections": group_section_titles,
+                        "error": str(e)
+                    })
 
-            # Keep original content for this group if fact-check fails
-            group_original_content = ""
-            for section in group:
-                section_title = section.get("section_title", "Untitled Section")
-                section_content = section.get("content", "")
-                group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
-            fact_checked_content_parts.append(group_original_content.strip())
+                    # Keep original content for this group if fact-check fails
+                    group_original_content = ""
+                    for section in group:
+                        section_title = section.get("section_title", "Untitled Section")
+                        section_content = section.get("content", "")
+                        group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+                    fact_checked_content_parts.append(group_original_content.strip())
 
     # Combine all fact-checked content parts
     combined_fact_checked_content = "\n\n".join(fact_checked_content_parts)
@@ -1995,16 +1797,13 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
     
     # Prepare messages
     try:
-        # Calculate article length
-        article_length = len(raw_response)
-
         messages = _load_and_prepare_messages(
             content_type,
             "02_editorial_review",
             {
                 "raw_response": raw_response,
-                "topic": topic,
-                "article_length": str(article_length)  # Add article length in characters
+                "topic": topic
+                # article_length is provided by variables_manager if set via CLI
             },
             variables_manager=variables_manager,
             stage_name="editorial_review"
@@ -2013,83 +1812,50 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
         logger.error(f"Failed to load editorial review prompt: {e}")
         return _create_error_response(topic, f"Ошибка загрузки промпта: {str(e)}", "prompt-error")
 
-    # Get models to try
-    primary_model = model_name or LLM_MODELS.get("editorial_review", DEFAULT_MODEL)
-    fallback_model = FALLBACK_MODELS.get("editorial_review")
+    # Use unified LLM request with automatic fallback
+    try:
+        from src.llm_request import make_llm_request
 
-    models_to_try = [
-        {"model": primary_model, "label": "primary"},
-        {"model": fallback_model, "label": "fallback"} if fallback_model and fallback_model != primary_model else None
-    ]
-    models_to_try = [m for m in models_to_try if m is not None]
+        response_obj, actual_model = make_llm_request(
+            stage_name="editorial_review",
+            messages=messages,
+            temperature=0.2,
+            response_format={"type": "json_object"},  # Request JSON mode
+            token_tracker=token_tracker,
+            base_path=base_path,
+            validation_level="minimal"  # Editorial uses minimal validation (doc: content already validated on stages 8+9)
+        )
 
-    logger.info(f"🎯 Editorial review plan: {len(models_to_try)} model(s) to try")
-    for i, model_info in enumerate(models_to_try):
-        logger.info(f"   {i+1}. {model_info['label']}: {model_info['model']}")
+        response = response_obj.choices[0].message.content
+        response = clean_llm_tokens(response)  # Clean LLM tokens
 
-    # Main retry loop with models
-    for model_index, model_info in enumerate(models_to_try):
-        current_model = model_info["model"]
-        model_label = model_info["label"]
-
-        logger.info(f"🤖 Attempting editorial review with {model_label} model: {current_model}")
-
-        # Retry loop for current model (3 attempts)
-        for attempt in range(1, 4):
-            logger.info(f"📝 Editorial review attempt {attempt}/3 with {model_label} model...")
-
-            try:
-                # Prepare API parameters
-                api_params = {
-                    "stage_name": "editorial_review",
-                    "model_name": current_model,
-                    "messages": messages,
-                    "token_tracker": token_tracker,
-                    "base_path": base_path,
-                    "temperature": 0.2,
-                    "response_format": {"type": "json_object"}
+        # Save interaction
+        if base_path:
+            save_llm_interaction(
+                base_path=base_path,
+                stage_name="editorial_review",
+                messages=messages,
+                response=response,
+                request_id="editorial_review",
+                extra_params={
+                    "topic": topic,
+                    "model": actual_model
                 }
+            )
 
-                # Make LLM request (this handles its own retries internally)
-                response_obj, actual_model = _make_llm_request_with_retry_sync(**api_params)
+        # Parse JSON with normalization (4 attempts)
+        parsed_result = _try_parse_editorial_json(response, actual_model, 1, "final")
 
-                response = response_obj.choices[0].message.content
-                response = clean_llm_tokens(response)  # Очищаем токены LLM
+        if parsed_result is not None:
+            logger.info(f"✅ Editorial review SUCCESS with {actual_model}")
+            logger.info(f"📄 Article title: {parsed_result.get('title', 'No title')}")
+            return parsed_result
+        else:
+            logger.error("❌ JSON parsing failed after successful LLM response")
+            return _create_error_response(topic, "Не удалось распарсить JSON ответ", "json-parse-error")
 
-                # Save interaction with attempt info
-                if base_path:
-                    save_llm_interaction(
-                        base_path=base_path,
-                        stage_name="editorial_review",
-                        messages=messages,
-                        response=response,
-                        request_id=f"{model_label}_attempt_{attempt}",
-                        extra_params={
-                            "topic": topic,
-                            "model_label": model_label,
-                            "attempt": attempt,
-                            "model": actual_model
-                        }
-                    )
-
-                # Try to parse JSON with normalization (4 attempts)
-                parsed_result = _try_parse_editorial_json(response, actual_model, attempt, model_label)
-
-                if parsed_result is not None:
-                    logger.info(f"✅ Editorial review SUCCESS on {model_label} model, attempt {attempt}")
-                    logger.info(f"📄 Article title: {parsed_result.get('title', 'No title')}")
-                    return parsed_result
-                else:
-                    logger.warning(f"❌ JSON parsing failed for {model_label} model, attempt {attempt}")
-
-            except Exception as e:
-                logger.error(f"❌ {model_label} model attempt {attempt} failed with exception: {e}")
-
-        logger.warning(f"💥 All 3 attempts failed for {model_label} model: {current_model}")
-
-    # All models and attempts failed
-    logger.error(f"🚨 EDITORIAL REVIEW COMPLETELY FAILED - all models exhausted", exc_info=True)
-    logger.error(f"Models tried: {[m['model'] for m in models_to_try]}", exc_info=True)
+    except Exception as e:
+        logger.error(f"🚨 Editorial review failed: {e}", exc_info=True)
 
     return _create_error_response(
         topic,
@@ -2372,13 +2138,14 @@ def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = N
                 group_path = os.path.join(base_path, f"group_{group_num}") if base_path else None
 
                 # Make link placement request
-                response_obj, actual_model = _make_llm_request_with_retry(
+                response_obj, actual_model = make_llm_request(
                     stage_name="link_placement",
                     model_name=model_name or LLM_MODELS.get("link_placement"),
                     messages=messages,
                     token_tracker=token_tracker,
                     base_path=group_path,
-                    temperature=0.3  # Slightly higher for creative link placement
+                    temperature=0.3,  # Slightly higher for creative link placement
+                    validation_level="minimal"  # Link placement uses minimal validation (doc: HTML content causes false positives)
                 )
 
                 content_with_links = response_obj.choices[0].message.content
@@ -2423,19 +2190,19 @@ def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = N
                     link_placement_status["failed_groups"] += 1
                     group_section_titles = [section.get("section_title", "Untitled Section") for section in group]
                     link_placement_status["failed_sections"].extend(group_section_titles)
-            link_placement_status["error_details"].append({
-                "group": group_num,
-                "sections": group_section_titles,
-                "error": str(e)
-            })
+                    link_placement_status["error_details"].append({
+                        "group": group_num,
+                        "sections": group_section_titles,
+                        "error": str(e)
+                    })
 
-            # Keep original content for this group if link placement fails
-            group_original_content = ""
-            for section in group:
-                section_title = section.get("section_title", "Untitled Section")
-                section_content = section.get("content", "")
-                group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
-            content_with_links_parts.append(group_original_content.strip())
+                    # Keep original content for this group if link placement fails
+                    group_original_content = ""
+                    for section in group:
+                        section_title = section.get("section_title", "Untitled Section")
+                        section_content = section.get("content", "")
+                        group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+                    content_with_links_parts.append(group_original_content.strip())
 
     # Combine all content parts with links
     combined_content_with_links = "\n\n".join(content_with_links_parts)
@@ -2505,15 +2272,23 @@ def translate_content(content: str, target_language: str, topic: str, base_path:
             stage_name="translation"
         )
 
-        # Make translation request (validation happens inside _make_llm_request_with_retry)
+        # Make translation request (validation happens inside make_llm_request)
         original_length = len(content)
-        response_obj, actual_model = _make_llm_request_with_retry(
+
+        # Import custom validator for translation
+        from src.llm_validation import translation_validator
+
+        response_obj, actual_model = make_llm_request(
             stage_name="translation",
             model_name=model_name or LLM_MODELS.get("translation"),
             messages=messages,
             token_tracker=token_tracker,
             base_path=base_path,
-            temperature=0.3
+            temperature=0.3,
+            validation_level="v3",
+            custom_validator=translation_validator,
+            original_length=original_length,
+            target_language=target_language
         )
 
         translated_content = response_obj.choices[0].message.content
@@ -2635,34 +2410,29 @@ def translate_sections(sections: List[Dict], target_language: str, topic: str, b
                 stage_name="translation"
             )
 
-            # Make translation request
-            current_model = model_name or LLM_MODELS.get("translation")
-            # Retry (3 attempts) + Fallback (3 attempts) = 6 total attempts handled inside
-            response_obj, actual_model = _make_llm_request_with_retry(
-                stage_name=f"translation_section_{section_num}",
-                model_name=current_model,
+            # Make translation request with custom length validation
+            from src.llm_request import make_llm_request
+            from src.llm_validation import translation_validator
+
+            original_length = len(section_content)
+
+            response_obj, actual_model = make_llm_request(
+                stage_name="translation",
                 messages=messages,
+                temperature=0.3,
                 token_tracker=token_tracker,
                 base_path=section_path,
-                target_language=target_language,  # Pass target language for validation
-                temperature=0.3  # Slightly higher for natural translation
+                validation_level="v3",
+                custom_validator=translation_validator,  # Custom validator with length check
+                target_language=target_language,  # For language check in v3.0
+                original_length=original_length  # For translation length ratio check (80-125%)
             )
 
             translated_content = response_obj.choices[0].message.content
             translated_content = clean_llm_tokens(translated_content)  # Clean LLM tokens
 
-            # Hard validation: check length with retry
+            # Validation is now done inside make_llm_request via translation_validator
             translated_length = len(translated_content)
-            original_length = len(section_content)
-            min_expected_length = original_length * 0.80  # 80% threshold
-            max_expected_length = original_length * 1.25  # 125% threshold
-
-            if translated_length < min_expected_length:
-                logger.warning(f"⚠️ Section {section_num} translation too short: {translated_length} chars < 80% of {original_length} ({translated_length/original_length*100:.1f}%)")
-                raise Exception(f"Section {section_num} translation too short: {translated_length} chars < 80% of {original_length}")
-            elif translated_length > max_expected_length:
-                logger.warning(f"⚠️ Section {section_num} translation too long: {translated_length} chars > 125% of {original_length} ({translated_length/original_length*100:.1f}%)")
-                raise Exception(f"Section {section_num} translation too long: {translated_length} chars > 125% of {original_length}")
 
             # Compact success log
             logger.info(f"Section {section_num}/{len(successful_sections)}: {section_title}... ✅ ({translated_length} chars, {translated_length/original_length*100:.0f}%)")
