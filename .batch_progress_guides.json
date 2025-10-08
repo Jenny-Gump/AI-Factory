@@ -1,42 +1,31 @@
 {
   "content_type": "guides",
   "topics_file": "topics_guides.txt",
-  "total_topics": 3,
+  "total_topics": 2,
   "completed_topics": [
-    "Deepseek local model installation guide step by step for beginners",
-    "Mistral local model installation guide step by step for beginners",
-    "Best local models guide step by step for beginners"
+    "Best local llm models guide step by step for beginners",
+    "10 best open source ChatGPT alternative guide for beginners"
   ],
   "failed_topics": [],
   "current_topic": null,
-  "start_time": "2025-09-30T12:59:55.754263",
-  "last_update_time": "2025-09-30T13:40:19.700292",
+  "start_time": "2025-10-08T15:17:05.205573",
+  "last_update_time": "2025-10-08T16:19:42.943445",
   "topic_statuses": {
-    "Deepseek local model installation guide step by step for beginners": {
-      "topic": "Deepseek local model installation guide step by step for beginners",
+    "Best local llm models guide step by step for beginners": {
+      "topic": "Best local llm models guide step by step for beginners",
       "status": "completed",
-      "start_time": "2025-09-30T12:59:55.754475",
-      "end_time": "2025-09-30T13:13:19.840864",
+      "start_time": "2025-10-08T15:17:05.205944",
+      "end_time": "2025-10-08T15:42:54.036861",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
       "wordpress_url": null
     },
-    "Mistral local model installation guide step by step for beginners": {
-      "topic": "Mistral local model installation guide step by step for beginners",
+    "10 best open source ChatGPT alternative guide for beginners": {
+      "topic": "10 best open source ChatGPT alternative guide for beginners",
       "status": "completed",
-      "start_time": "2025-09-30T13:13:24.914689",
-      "end_time": "2025-09-30T13:26:29.754376",
-      "attempts": 1,
-      "error_message": null,
-      "wordpress_id": null,
-      "wordpress_url": null
-    },
-    "Best local models guide step by step for beginners": {
-      "topic": "Best local models guide step by step for beginners",
-      "status": "completed",
-      "start_time": "2025-09-30T13:26:34.814207",
-      "end_time": "2025-09-30T13:40:14.636780",
+      "start_time": "2025-10-08T15:42:59.088168",
+      "end_time": "2025-10-08T16:19:37.862244",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
