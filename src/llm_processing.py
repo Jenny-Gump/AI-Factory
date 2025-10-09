@@ -708,66 +708,47 @@ async def _make_llm_request_with_timeout(stage_name: str, model_name: str, messa
                                         token_tracker: TokenTracker = None, timeout: int = MODEL_TIMEOUT,
                                         base_path: str = None, **kwargs) -> tuple:
     """
-    Makes LLM request with timeout and immediate fallback on timeout.
+    Makes LLM request with timeout protection only.
+
+    Retry/fallback logic is fully handled by the unified LLM request system (make_llm_request).
+    This function only adds asyncio timeout protection for long-running requests.
 
     Returns:
         tuple: (response_obj, actual_model_used)
+
+    Raises:
+        asyncio.TimeoutError: If request exceeds timeout
+        Exception: If request fails after all retry/fallback attempts
     """
-    primary_model = model_name or LLM_MODELS.get(stage_name, DEFAULT_MODEL)
-    fallback_model = FALLBACK_MODELS.get(stage_name)
-
-    models_to_try = [primary_model]
-    if fallback_model and fallback_model != primary_model:
-        models_to_try.append(fallback_model)
-        logger.info(f"📌 Fallback model available for {stage_name}: {fallback_model}")
-    else:
-        logger.info(f"⚠️ No fallback model configured for {stage_name}, will only try primary model")
-
-    for model_index, current_model in enumerate(models_to_try):
-        model_label = "primary" if model_index == 0 else "fallback"
-        logger.info(f"🤖 Using {model_label} model for {stage_name}: {current_model} (timeout: {timeout}s)")
-
-        try:
-            # Make request with timeout
-            def make_request():
-                return make_llm_request(
-                    stage_name=stage_name,
-                    model_name=current_model,
-                    messages=messages,
-                    token_tracker=token_tracker,
-                    base_path=base_path,
-                    validation_level="v3",
-                    **kwargs
-                )
-
-            loop = asyncio.get_event_loop()
-            response_obj, actual_model = await asyncio.wait_for(
-                loop.run_in_executor(None, make_request),
-                timeout=timeout
+    try:
+        # Make request with timeout wrapper
+        def make_request():
+            return make_llm_request(
+                stage_name=stage_name,
+                model_name=model_name,
+                messages=messages,
+                token_tracker=token_tracker,
+                base_path=base_path,
+                validation_level="v3",
+                **kwargs
             )
 
-            logger.info(f"✅ Model {current_model} responded successfully ({model_label})")
-            return response_obj, actual_model
+        loop = asyncio.get_event_loop()
+        response_obj, actual_model = await asyncio.wait_for(
+            loop.run_in_executor(None, make_request),
+            timeout=timeout
+        )
 
-        except asyncio.TimeoutError:
-            logger.warning(f"⏰ TIMEOUT: Model {current_model} timed out after {timeout}s ({model_label} for {stage_name})")
-            if model_index == len(models_to_try) - 1:  # Last model
-                logger.error(f"🚨 ALL MODELS TIMED OUT for {stage_name}. Models tried: {models_to_try}", exc_info=True)
-                raise Exception(f"All models timed out for {stage_name}: {models_to_try}")
-            else:
-                next_model = models_to_try[model_index + 1] if model_index + 1 < len(models_to_try) else "unknown"
-                logger.info(f"🔄 FALLBACK: Trying fallback model {next_model} after timeout...")
-                continue
+        logger.info(f"✅ Request completed successfully within {timeout}s timeout")
+        return response_obj, actual_model
 
-        except Exception as e:
-            logger.warning(f"❌ Model {current_model} failed ({model_label}): {e}")
-            if model_index == len(models_to_try) - 1:  # Last model
-                logger.error(f"🚨 All models failed for stage {stage_name}. Models tried: {models_to_try}")
-                raise Exception(f"All models failed for {stage_name}: {models_to_try}")
-            else:
-                logger.info(f"🔄 Trying fallback model...")
+    except asyncio.TimeoutError:
+        logger.error(f"⏰ TIMEOUT: Request exceeded {timeout}s timeout for {stage_name}", exc_info=True)
+        raise Exception(f"Request timed out after {timeout}s for {stage_name}")
 
-    raise Exception(f"All models failed for {stage_name}: {models_to_try}")
+    except Exception as e:
+        logger.error(f"❌ Request failed for {stage_name}: {e}", exc_info=True)
+        raise
 
 
 def _make_google_direct_request(model_name: str, messages: list, **kwargs):
@@ -968,7 +949,15 @@ def extract_sections_from_article(article_text: str, topic: str, base_path: str 
 async def _generate_single_section_async(section: Dict, idx: int, topic: str,
                                         sections_path: str, model_name: str,
                                         token_tracker: TokenTracker, content_type: str = "basic_articles") -> Dict:
-    """Generates a single section asynchronously with proper timeout and fallback handling."""
+    """
+    Generates a single section asynchronously with timeout protection.
+
+    Retry/fallback logic is handled by the unified LLM request system:
+    - 3 retry attempts on primary model
+    - Automatic fallback to secondary model
+    - 3 retry attempts on fallback model
+    Total: 6 attempts with progressive backoff
+    """
     section_num = f"section_{idx}"
     section_title = section.get('section_title', f'Section {idx}')
 
@@ -985,84 +974,73 @@ async def _generate_single_section_async(section: Dict, idx: int, topic: str,
         await asyncio.sleep(http_delay)
         logger.info(f"✅ Section {idx} finished waiting, starting HTTP request...")
 
-    for attempt in range(1, SECTION_MAX_RETRIES + 1):
-        try:
-            logger.info(f"🔄 Section {idx} attempt {attempt}/{SECTION_MAX_RETRIES}: {section_title}")
+    try:
+        logger.info(f"🔄 Generating section {idx}: {section_title}")
 
-            # Prepare section-specific prompt
-            messages = _load_and_prepare_messages(
-                content_type,
-                "01_generate_section",
-                {
-                    "topic": topic,
-                    "section_title": section.get("section_title", ""),
-                    "section_structure": json.dumps(section, indent=2, ensure_ascii=False)
-                }
-            )
-
-            # Use new timeout-aware request function
-            response_obj, actual_model = await _make_llm_request_with_timeout(
-                stage_name="generate_article",
-                model_name=model_name,
-                messages=messages,
-                token_tracker=token_tracker,
-                timeout=MODEL_TIMEOUT,
-                base_path=section_path,
-                temperature=0.3
-            )
-
-            section_content = response_obj.choices[0].message.content
-            section_content = clean_llm_tokens(section_content)  # Очищаем токены LLM
-
-            # Validation happens inside _make_llm_request_with_timeout (min_length=300)
-            # No additional validation needed here
-
-            # Save section interaction
-            if section_path:
-
-                save_llm_interaction(
-                    base_path=section_path,
-                    stage_name="generate_section",
-                    messages=messages,
-                    response=section_content,
-                    extra_params={
-                        "topic": topic,
-                        "section_num": idx,
-                        "section_title": section.get("section_title", ""),
-                        "model": actual_model,
-                        "attempt": attempt
-                    }
-                )
-
-            logger.info(f"✅ Successfully generated section {idx} (attempt {attempt}): {section_title}")
-
-            result = {
-                "section_num": idx,
+        # Prepare section-specific prompt
+        messages = _load_and_prepare_messages(
+            content_type,
+            "01_generate_section",
+            {
+                "topic": topic,
                 "section_title": section.get("section_title", ""),
-                "content": section_content,
-                "status": "success",
-                "attempts": attempt
+                "section_structure": json.dumps(section, indent=2, ensure_ascii=False)
             }
+        )
 
-            logger.info(f"🎯 Section {idx} COMPLETED and returning result")
-            return result
+        # Use timeout-aware request function (unified system handles all retry/fallback internally)
+        response_obj, actual_model = await _make_llm_request_with_timeout(
+            stage_name="generate_article",
+            model_name=model_name,
+            messages=messages,
+            token_tracker=token_tracker,
+            timeout=MODEL_TIMEOUT,
+            base_path=section_path,
+            temperature=0.3
+        )
 
-        except Exception as e:
-            logger.error(f"❌ Section {idx} attempt {attempt} failed: {e}", exc_info=True)
-            if attempt < SECTION_MAX_RETRIES:
-                wait_time = attempt * 5  # Progressive backoff: 5s, 10s, 15s
-                logger.info(f"⏳ Waiting {wait_time}s before retry...")
-                await asyncio.sleep(wait_time)
-            else:
-                logger.error(f"💥 Section {idx} failed after {SECTION_MAX_RETRIES} attempts", exc_info=True)
-                return {
+        section_content = response_obj.choices[0].message.content
+        section_content = clean_llm_tokens(section_content)  # Очищаем токены LLM
+
+        # Validation happens inside unified LLM request system (v3.0 validation)
+        # No additional validation needed here
+
+        # Save section interaction
+        if section_path:
+            save_llm_interaction(
+                base_path=section_path,
+                stage_name="generate_section",
+                messages=messages,
+                response=section_content,
+                extra_params={
+                    "topic": topic,
                     "section_num": idx,
                     "section_title": section.get("section_title", ""),
-                    "content": f"<p>Не удалось сгенерировать раздел '{section_title}' после {SECTION_MAX_RETRIES} попыток. Последняя ошибка: {str(e)}</p>",
-                    "status": "failed",
-                    "error": str(e),
-                    "attempts": SECTION_MAX_RETRIES
+                    "model": actual_model
                 }
+            )
+
+        logger.info(f"✅ Successfully generated section {idx}: {section_title}")
+
+        result = {
+            "section_num": idx,
+            "section_title": section.get("section_title", ""),
+            "content": section_content,
+            "status": "success"
+        }
+
+        logger.info(f"🎯 Section {idx} COMPLETED and returning result")
+        return result
+
+    except Exception as e:
+        logger.error(f"💥 Section {idx} failed after all retry/fallback attempts: {e}", exc_info=True)
+        return {
+            "section_num": idx,
+            "section_title": section.get("section_title", ""),
+            "content": f"<p>Не удалось сгенерировать раздел '{section_title}' после всех попыток. Ошибка: {str(e)}</p>",
+            "status": "failed",
+            "error": str(e)
+        }
 
 
 def generate_article_by_sections(structure: List[Dict], topic: str, base_path: str = None,
