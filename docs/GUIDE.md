@@ -599,4 +599,4 @@ python3 main.py "тема" --start-from-stage editorial_review --verbose
 
 ---
 
-**Версия**: 2.3.0 | **Статус**: ✅ Production Ready
+**Версия**: 2.4.0 | **Статус**: ✅ Production Ready

@@ -495,4 +495,4 @@ cat src/config.py | grep LLM_MODELS
 
 ---
 
-**Версия**: 2.3.0 | **Статус**: ✅ Production Ready
+**Версия**: 2.4.0 | **Статус**: ✅ Production Ready
