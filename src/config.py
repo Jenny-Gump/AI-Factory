@@ -110,6 +110,7 @@ LLM_PROVIDERS = {
         "base_url": "https://openrouter.ai/api/v1",
         "api_key_env": "OPENROUTER_API_KEY",
         "models": [
+            "openai/gpt-5",
             "openai/gpt-4o",
             "openai/gpt-4o-mini",
             "openai/gpt-4-turbo",

@@ -602,6 +602,34 @@ Exception raised: "All models failed for stage"
 | translation | llm_processing.py:2284 | ✅ Gemini | v3 + custom validator (80-125%) |
 | editorial_review | llm_processing.py:1822 | ✅ DeepSeek | minimal |
 
+#### Post-Processor Coverage (v2.4.0)
+
+**Post-processor pattern** применяется для downstream обработки (JSON parsing, normalization) с автоматическим retry/fallback при ошибках.
+
+**Этапы С post-processors (3/7)**:
+
+| Этап | Post-Processor | Назначение |
+|------|----------------|------------|
+| extract_sections | `_extract_post_processor` | JSON array parsing |
+| create_structure | `_create_structure_post_processor` | JSON object parsing + format normalization |
+| editorial_review | `_editorial_post_processor` | JSON object parsing с 5-уровневой нормализацией |
+
+**Этапы БЕЗ post-processors (4/7)** - возвращают HTML string напрямую:
+
+| Этап | Return Type | Причина |
+|------|-------------|---------|
+| generate_article | HTML string | Контент напрямую, не требует JSON parsing |
+| translation | HTML string | Переведенный контент + custom validator для длины |
+| fact_check | HTML string | Исправленный HTML, не требует дополнительной обработки |
+| link_placement | HTML string | HTML с вставленными ссылками |
+
+**Ключевой принцип**: Post-processors нужны только там, где:
+1. LLM возвращает JSON (не HTML)
+2. Требуется downstream парсинг/нормализация ПОСЛЕ успешного ответа API
+3. Есть риск ошибок парсинга, требующих retry/fallback
+
+**Важно**: Все 7 этапов используют `make_llm_request()` для унифицированного retry/fallback, но только 3 из них требуют дополнительной JSON post-processing защиты.
+
 #### Преимущества
 
 - ✅ **Reliability**: Автоматический fallback на ВСЕХ этапах (ранее только на 5)

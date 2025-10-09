@@ -150,7 +150,8 @@ class VariablesManager:
             'language': args_dict.get('language'),
             'translation_mode': args_dict.get('translation_mode', 'on'),
             'fact_check_mode': args_dict.get('fact_check_mode', 'on'),
-            'link_placement_mode': args_dict.get('link_placement_mode', 'on')
+            'link_placement_mode': args_dict.get('link_placement_mode', 'on'),
+            'llm_model': args_dict.get('llm_model')
         }
 
         # Filter out None values

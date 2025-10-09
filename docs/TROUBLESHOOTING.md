@@ -72,17 +72,35 @@ python3 batch_processor.py topics.txt --resume
 
 ### Q: Как запустить только определенный этап?
 
-**A**: Используйте `--start-from-stage`:
+**A**: Используйте `--start-from-stage` для продолжения с конкретного этапа:
 
 ```bash
-# Запуск fact-check для существующей статьи
+# 1. Генерация статьи (этап 8)
+# Требуется: 07_ultimate_structure/ultimate_structure.json
+python3 main.py "тема" --start-from-stage generate_article
+
+# 2. Перевод (этап 9)
+# Требуется: 08_article_generation/wordpress_data.json
+python3 main.py "тема" --start-from-stage translation
+
+# 3. Fact-check (этап 10)
+# Требуется: 09_translation/translated_wordpress_data.json
 python3 main.py "тема" --start-from-stage fact_check
 
-# Запуск editorial review
+# 4. Link placement (этап 11)
+# Требуется: 10_fact_check/fact_checked_wordpress_data.json
+python3 main.py "тема" --start-from-stage link_placement
+
+# 5. Editorial review (этап 12)
+# Требуется: 11_link_placement/link_placement_wordpress_data.json
 python3 main.py "тема" --start-from-stage editorial_review
+
+# 6. Публикация (этап 13)
+# Требуется: 12_editorial_review/final_wordpress_data.json
+python3 main.py "тема" --start-from-stage publication
 ```
 
-**Важно**: Папка `output/{тема}/` должна уже существовать с данными.
+**Важно**: Папка `output/{тема}/` должна уже существовать с выходными данными предыдущих этапов.
 
 ### Q: Как сменить язык генерации?
 

@@ -320,20 +320,89 @@ python3 batch_processor.py topics_guides.txt \
 
 ### 3. Запуск с определенного этапа
 
-Продолжение pipeline с конкретного этапа (для отладки).
+Продолжение pipeline с конкретного этапа (для отладки или пропуска начальных этапов).
+
+#### Доступные стадии
+
+##### generate_article (этап 8)
+Генерация статьи из готовой структуры.
 
 ```bash
-# Запуск fact-check для существующей статьи
+python3 main.py "тема" --start-from-stage generate_article
+```
+
+**Требуется**: `07_ultimate_structure/ultimate_structure.json`
+
+**Создает**: `08_article_generation/wordpress_data.json`
+
+---
+
+##### translation (этап 9)
+Перевод секций на целевой язык.
+
+```bash
+python3 main.py "тема" --start-from-stage translation --language "english"
+```
+
+**Требуется**: `08_article_generation/wordpress_data.json`
+
+**Создает**: `09_translation/translated_sections.json`
+
+---
+
+##### fact_check (этап 10)
+Проверка фактов через Google Gemini с веб-поиском.
+
+```bash
 python3 main.py "тема" --start-from-stage fact_check
+```
 
-# Запуск editorial review
+**Требуется**: `09_translation/translated_sections.json`
+
+**Создает**: `10_fact_check/fact_checked_content.json`
+
+---
+
+##### link_placement (этап 11)
+Добавление 10-20 внешних ссылок в контент.
+
+```bash
+python3 main.py "тема" --start-from-stage link_placement
+```
+
+**Требуется**: `09_translation/translated_sections.json`
+
+**Создает**: `11_link_placement/content_with_links.json`
+
+---
+
+##### editorial_review (этап 12)
+Финальная редактура и форматирование для WordPress.
+
+```bash
 python3 main.py "тема" --start-from-stage editorial_review
+```
 
-# Запуск публикации
+**Требуется**: `11_link_placement/content_with_links.json` (или `10_fact_check/` или `09_translation/`)
+
+**Создает**: `12_editorial_review/wordpress_data_final.json`
+
+---
+
+##### publication (этап 13)
+Публикация в WordPress.
+
+```bash
 python3 main.py "тема" --start-from-stage publication
 ```
 
-**Важно**: Команда ищет существующую папку `output/{тема}/` и использует данные оттуда.
+**Требуется**: `12_editorial_review/wordpress_data_final.json`
+
+**Создает**: `wordpress_publication_result.json`
+
+---
+
+**Важно**: Команда ищет существующую папку `output/{тема}/` и использует данные оттуда. Запускайте полный pipeline хотя бы раз для создания необходимых файлов.
 
 ### 4. Типы контента
 

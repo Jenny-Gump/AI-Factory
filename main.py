@@ -23,7 +23,8 @@ from src.llm_processing import (
     editorial_review,
     _load_and_prepare_messages,
     save_llm_interaction,
-    _parse_json_from_response
+    _parse_json_from_response,
+    _create_structure_post_processor
 )
 from src.llm_request import make_llm_request  # Unified LLM request with automatic fallback
 from src.wordpress_publisher import WordPressPublisher
@@ -50,8 +51,12 @@ def save_artifact(data, path, filename):
 def fix_content_newlines(content: str) -> str:
     """
     Исправляет переносы строк в code блоках для WordPress.
-    WordPress wpautop ломает <pre> блоки с реальными newlines,
-    поэтому заменяем newlines на <br> теги.
+
+    Проблема: JSON parser экранирует реальные \n в \\n,
+    которые затем могут отображаться как literal 'nn' или '\\n'.
+
+    Решение: Конвертируем экранированные \\n обратно в реальные \n,
+    чтобы WordPress корректно отображал переносы строк в <pre><code> блоках.
     """
     if not content:
         return content
@@ -64,14 +69,28 @@ def fix_content_newlines(content: str) -> str:
         code_closing = match.group(4)  # </code>
         pre_closing = match.group(5)  # </pre>
 
-        # Заменяем реальные newlines на <br> для WordPress
-        # WordPress wpautop ломает pre-блоки с реальными newlines
-        fixed_content = code_content.replace('\n', '<br>')
+        # Исправляем экранированные переносы строк:
+        # В JSON parser могут быть разные уровни экранирования:
+        # - \\n (literal backslash + n) - из JSON строки
+        # - <br> теги - из предыдущих версий функции
+
+        # 1. Заменить literal \n (из JSON) на реальные переносы
+        # ВАЖНО: В Python строке '\\n' это literal backslash + n
+        fixed_content = code_content.replace('\\n', '\n')
+
+        # 2. Заменить <br> теги на реальные переносы (если они есть)
+        fixed_content = fixed_content.replace('<br>', '\n')
+
+        # 3. Убрать случаи где появились literal 'nn' (fallback)
+        # Это может произойти если экранирование было неправильным
+        if 'nn' in fixed_content and '\n' not in fixed_content:
+            fixed_content = fixed_content.replace('nn', '\n')
 
         # Логирование для отладки
-        newline_count = code_content.count('\n')
-        if newline_count > 0:
-            logger.debug(f"Fixed code block: replaced {newline_count} newlines with <br>")
+        escaped_count = code_content.count('\\n')
+        literal_nn_count = code_content.count('nn')
+        if escaped_count > 0 or literal_nn_count > 0:
+            logger.debug(f"Fixed code block: {escaped_count} escaped newlines, {literal_nn_count} literal 'nn'")
 
         return f"{pre_tag}{code_opening}{fixed_content}{code_closing}{pre_closing}"
 
@@ -286,59 +305,20 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         stage_name="create_structure"
     )
 
-    # Use unified LLM request with automatic fallback
+    # Use unified LLM request with automatic fallback and post-processor
     try:
-        response_obj, actual_model = make_llm_request(
+        ultimate_structure, actual_model = make_llm_request(
             stage_name="create_structure",
             messages=messages,
             temperature=0.3,
             token_tracker=token_tracker,
             base_path=paths["ultimate_structure"],
-            validation_level="minimal"  # Create structure uses minimal validation
+            validation_level="minimal",  # Create structure uses minimal validation
+            post_processor=_create_structure_post_processor  # JSON parsing with retry protection
         )
 
-        content = response_obj.choices[0].message.content
-        save_llm_interaction(
-            base_path=paths["ultimate_structure"],
-            stage_name="create_structure",
-            messages=messages,
-            response=content,
-            request_id="ultimate_structure"
-        )
-
-        ultimate_structure = _parse_json_from_response(content)
-
-        # DEBUG: Log what we got
-        logger.info(f"🔍 DEBUG: ultimate_structure type = {type(ultimate_structure)}")
-        logger.info(f"🔍 DEBUG: ultimate_structure value = {ultimate_structure if isinstance(ultimate_structure, (list, dict)) and len(str(ultimate_structure)) < 500 else str(ultimate_structure)[:500]}")
-
-        if ultimate_structure and ultimate_structure != []:
-            logger.info(f"✅ Successfully created ultimate structure with {actual_model}")
-
-            # Normalize structure: handle both dict and list formats
-            if isinstance(ultimate_structure, list):
-                # LLM returned array instead of object - wrap it
-                logger.warning("⚠️ LLM returned array instead of object with article_structure - normalizing")
-                ultimate_structure = {
-                    "article_structure": ultimate_structure,
-                    "writing_guidelines": {}
-                }
-            elif isinstance(ultimate_structure, dict):
-                # Check if it has expected keys
-                if "article_structure" not in ultimate_structure:
-                    logger.warning("⚠️ Missing 'article_structure' key - treating as sections array")
-                    ultimate_structure = {
-                        "article_structure": ultimate_structure.get("sections", [ultimate_structure]),
-                        "writing_guidelines": ultimate_structure.get("writing_guidelines", {})
-                    }
-
-            # DEBUG: After normalization
-            logger.info(f"🔍 DEBUG AFTER normalization: type = {type(ultimate_structure)}, has article_structure = {'article_structure' in ultimate_structure if isinstance(ultimate_structure, dict) else 'N/A'}")
-
-            save_artifact(ultimate_structure, paths["ultimate_structure"], "ultimate_structure.json")
-        else:
-            logger.error("Failed to parse JSON from create_structure response")
-            ultimate_structure = None
+        logger.info(f"✅ Successfully created ultimate structure with {actual_model}")
+        save_artifact(ultimate_structure, paths["ultimate_structure"], "ultimate_structure.json")
 
     except Exception as e:
         logger.error(f"Failed to create ultimate structure: {e}", exc_info=True)
@@ -1040,6 +1020,8 @@ if __name__ == "__main__":
                        help='Enable (on) or disable (off) fact-checking stage')
     parser.add_argument('--link-placement-mode', choices=['on', 'off'], default='on',
                        help='Enable (on) or disable (off) link placement stage')
+    parser.add_argument('--llm-model',
+                       help='Override primary LLM model for generation (stage 8) and editorial (stage 12) (e.g., "openai/gpt-5", "deepseek-reasoner")')
 
     args = parser.parse_args()
 

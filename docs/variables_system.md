@@ -69,6 +69,16 @@
 - **Значения**: "on" (по умолчанию) | "off"
 - **Пример**: `--fact-check-mode off`
 
+### llm_model (string)
+- **Описание**: Override primary LLM model для генерации контента и редакторской правки
+- **Этапы**: пайплайн-логика (НЕ промпт-аддон) - модифицирует этапы 8 и 12
+- **Пример**: `--llm-model "openai/gpt-5"`
+- **Поведение**:
+  - Заменяет модель **только** для этапов 8 (generate_article) и 12 (editorial_review)
+  - Fallback модели остаются прежними из `FALLBACK_MODELS`
+  - Другие этапы (7, 9, 10, 11) НЕ затрагиваются
+  - Доступные модели: "openai/gpt-5", "deepseek-reasoner", "openai/gpt-4o", и другие из `LLM_PROVIDERS`
+
 ### include_examples (boolean)
 - **Описание**: Включать практические примеры
 - **Этапы**: отключена
@@ -98,7 +108,13 @@ python3 main.py "Нейронные сети" \
   --tone-of-voice "formal" \
   --fact-check-mode off \
   --include-examples \
-  --seo-keywords "нейронные сети, deep learning, машинное обучение"
+  --seo-keywords "нейронные сети, deep learning, машинное обучение" \
+  --llm-model "openai/gpt-5"
+
+# Пример с override модели для генерации на английском
+python3 main.py "Neural Networks Guide" \
+  --llm-model "openai/gpt-5" \
+  --language "english"
 ```
 
 ### Батч-обработка
@@ -122,12 +138,18 @@ python3 batch_processor.py topics_guides.txt \
   --seo-keywords "безопасность, киберзащита, DevSecOps" \
   --fact-check-mode off \
   --link-placement-mode off \
-  --translation-mode off
+  --translation-mode off \
+  --llm-model "openai/gpt-5"
 
 # Минимальный пример
 python3 batch_processor.py topics.txt \
   --language "english" \
   --author-style "conversational"
+
+# Пример с GPT-5 для генерации
+python3 batch_processor.py topics.txt \
+  --llm-model "openai/gpt-5" \
+  --language "english"
 ```
 
 #### Программная батч-обработка
@@ -145,7 +167,8 @@ variables_manager.set_variables(
     language="english",
     include_examples=True,
     article_length=5000,
-    fact_check_mode="off"
+    fact_check_mode="off",
+    llm_model="openai/gpt-5"
 )
 
 # Запустить батч с переменными
@@ -170,7 +193,8 @@ vm.set_variables(
     theme_focus="business applications",
     language="english",
     include_examples=True,
-    fact_check_mode="on"
+    fact_check_mode="on",
+    llm_model="openai/gpt-5"
 )
 
 # Получение аддонов для этапа

@@ -72,10 +72,11 @@ class LLMRequestHandler:
         validation_level: str = "minimal",
         custom_validator: Optional[Callable] = None,
         enable_web_search: bool = False,
+        post_processor: Optional[Callable[[str, str], Any]] = None,
         **validation_kwargs
     ) -> Tuple[Any, str]:
         """
-        Universal LLM request with automatic retry, fallback, and validation.
+        Universal LLM request with automatic retry, fallback, validation, and post-processing.
 
         Args:
             stage_name: Pipeline stage name (e.g., "generate_article")
@@ -90,28 +91,38 @@ class LLMRequestHandler:
             validation_level: "v3", "minimal", "none" (default: "minimal")
             custom_validator: Custom validation function (optional)
             enable_web_search: Enable web search for Google models (default: False)
+            post_processor: Optional function(response_text, model_name) -> processed_result
+                           If provided, will be called after validation. If it returns None or
+                           raises exception, will trigger retry/fallback. Useful for JSON parsing.
             **validation_kwargs: Additional validation parameters
                 - target_language: Target language for v3 validation
                 - original_length: Original text length for translation validator
                 - min_length: Minimum text length override
 
         Returns:
-            Tuple[response_object, actual_model_used]
-            response_object: API response with .choices[0].message.content
-            actual_model_used: String name of model that succeeded
+            Tuple[processed_result|response_object, actual_model_used]
+            If post_processor provided: (processed_result, model_name)
+            If not: (response_object, model_name)
 
         Raises:
             Exception: After all retries and fallback models exhausted
 
-        Example:
+        Example without post_processor:
             >>> response, model = make_request(
             ...     stage_name="generate_article",
             ...     messages=[{"role": "user", "content": "Write about AI"}],
             ...     temperature=0.3,
-            ...     validation_level="v3",
-            ...     token_tracker=tracker
+            ...     validation_level="v3"
             ... )
             >>> print(response.choices[0].message.content)
+
+        Example with post_processor (JSON parsing):
+            >>> def parse_json(text, model): return json.loads(text)
+            >>> parsed_data, model = make_request(
+            ...     stage_name="extract_sections",
+            ...     messages=messages,
+            ...     post_processor=parse_json
+            ... )
         """
         # Extract base stage name (handle section-specific stages like "translation_section_1")
         base_stage_name = stage_name.split("_section_")[0] if "_section_" in stage_name else stage_name
@@ -203,32 +214,103 @@ class LLMRequestHandler:
 
                         raise ValueError("Response validation failed")
 
-                    # Validation passed - save successful response
-                    if base_path:
-                        self._save_successful_response(
-                            base_path=base_path,
-                            stage_name=stage_name,
-                            model_name=current_model,
-                            attempt=attempt,
-                            response_text=response_text
-                        )
+                    # Post-processing (if post_processor provided)
+                    if post_processor:
+                        logger.info(f"🔄 [{stage_name}] Running post-processor...")
+                        try:
+                            processed_result = post_processor(response_text, current_model)
 
-                    # Track tokens
-                    if token_tracker and hasattr(response_obj, 'usage') and response_obj.usage:
-                        token_tracker.add_usage(
-                            stage=stage_name,
-                            usage=response_obj.usage,
-                            extra_metadata={
-                                "model": current_model,
-                                "provider": provider,
-                                "attempt": attempt,
-                                "model_label": model_label
-                            }
-                        )
+                            # Check if post-processor returned None
+                            if processed_result is None:
+                                logger.warning(f"⚠️ [{stage_name}] Post-processor returned None (attempt {attempt})")
 
-                    # Success!
-                    logger.info(f"✅ [{stage_name}] Success with {current_model} on attempt {attempt}")
-                    return response_obj, current_model
+                                # Save failed post-processing response
+                                if base_path:
+                                    self._save_failed_response(
+                                        base_path=base_path,
+                                        stage_name=stage_name,
+                                        model_name=current_model,
+                                        attempt=attempt,
+                                        response_text=response_text,
+                                        error="Post-processor returned None"
+                                    )
+
+                                raise ValueError("Post-processor returned None")
+
+                            logger.info(f"✅ [{stage_name}] Post-processing successful")
+
+                            # Track tokens
+                            if token_tracker and hasattr(response_obj, 'usage') and response_obj.usage:
+                                token_tracker.add_usage(
+                                    stage=stage_name,
+                                    usage=response_obj.usage,
+                                    extra_metadata={
+                                        "model": current_model,
+                                        "provider": provider,
+                                        "attempt": attempt,
+                                        "model_label": model_label,
+                                        "post_processed": True
+                                    }
+                                )
+
+                            # Save successful post-processing response
+                            if base_path:
+                                self._save_successful_response(
+                                    base_path=base_path,
+                                    stage_name=stage_name,
+                                    model_name=current_model,
+                                    attempt=attempt,
+                                    response_text=response_text,
+                                    post_processed=True
+                                )
+
+                            # Success with post-processing!
+                            logger.info(f"✅ [{stage_name}] Success with {current_model} on attempt {attempt}")
+                            return processed_result, current_model
+
+                        except Exception as post_error:
+                            logger.warning(f"⚠️ [{stage_name}] Post-processing failed: {post_error}")
+
+                            # Save failed post-processing response
+                            if base_path:
+                                self._save_failed_response(
+                                    base_path=base_path,
+                                    stage_name=stage_name,
+                                    model_name=current_model,
+                                    attempt=attempt,
+                                    response_text=response_text,
+                                    error=f"Post-processing failed: {post_error}"
+                                )
+
+                            raise ValueError(f"Post-processing failed: {post_error}") from post_error
+                    else:
+                        # No post-processor - return raw response after validation
+                        # Track tokens
+                        if token_tracker and hasattr(response_obj, 'usage') and response_obj.usage:
+                            token_tracker.add_usage(
+                                stage=stage_name,
+                                usage=response_obj.usage,
+                                extra_metadata={
+                                    "model": current_model,
+                                    "provider": provider,
+                                    "attempt": attempt,
+                                    "model_label": model_label
+                                }
+                            )
+
+                        # Save successful response
+                        if base_path:
+                            self._save_successful_response(
+                                base_path=base_path,
+                                stage_name=stage_name,
+                                model_name=current_model,
+                                attempt=attempt,
+                                response_text=response_text
+                            )
+
+                        # Success!
+                        logger.info(f"✅ [{stage_name}] Success with {current_model} on attempt {attempt}")
+                        return response_obj, current_model
 
                 except Exception as e:
                     last_exception = e
@@ -343,7 +425,8 @@ class LLMRequestHandler:
         stage_name: str,
         model_name: str,
         attempt: int,
-        response_text: str
+        response_text: str,
+        post_processed: bool = False
     ):
         """Save successful response with metadata"""
         try:
@@ -363,6 +446,7 @@ class LLMRequestHandler:
                 f.write(f"ATTEMPT: {attempt}\n")
                 f.write(f"RESPONSE_LENGTH: {len(response_text)}\n")
                 f.write(f"VALIDATION: PASSED\n")
+                f.write(f"POST_PROCESSED: {post_processed}\n")
                 f.write(f"SUCCESS: True\n")
                 f.write("=" * 80 + "\n")
                 f.write(response_text)

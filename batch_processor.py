@@ -594,6 +594,8 @@ if __name__ == "__main__":
                        help='Enable (on) or disable (off) fact-checking stage')
     parser.add_argument('--link-placement-mode', choices=['on', 'off'], default='on',
                        help='Enable (on) or disable (off) link placement stage')
+    parser.add_argument('--llm-model',
+                       help='Override primary LLM model for generation (stage 8) and editorial (stage 12) (e.g., "openai/gpt-5", "deepseek-reasoner")')
 
     args = parser.parse_args()
 

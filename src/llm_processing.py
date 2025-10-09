@@ -48,6 +48,104 @@ def clean_llm_tokens(text: str) -> str:
     return cleaned.strip()
 
 
+# ============================================================================
+# POST-PROCESSORS for unified retry/fallback system
+# ============================================================================
+
+def _editorial_post_processor(response_text: str, model_name: str):
+    """
+    Post-processor for editorial_review stage.
+
+    Cleans LLM tokens and parses JSON response with normalization.
+
+    Args:
+        response_text: Raw LLM response text
+        model_name: Name of model that generated the response
+
+    Returns:
+        Parsed Dict with article data, or None if parsing failed
+    """
+    # Clean LLM tokens first
+    cleaned_text = clean_llm_tokens(response_text)
+
+    # Parse JSON with normalization (5 attempts inside _try_parse_editorial_json)
+    parsed = _try_parse_editorial_json(cleaned_text, model_name, 1, "final")
+
+    return parsed  # None if all parsing attempts failed
+
+
+def _extract_post_processor(response_text: str, model_name: str):
+    """
+    Post-processor for extract_sections stage.
+
+    Cleans LLM tokens and parses JSON response to list of structures.
+
+    Args:
+        response_text: Raw LLM response text
+        model_name: Name of model that generated the response
+
+    Returns:
+        List[Dict] of extracted structures, or None if parsing failed
+    """
+    # Clean LLM tokens first
+    cleaned_text = clean_llm_tokens(response_text)
+
+    # Parse JSON (handles arrays, objects, and wrapped formats)
+    parsed = _parse_json_from_response(cleaned_text)
+
+    # Validate result is a list
+    if not isinstance(parsed, list):
+        logger.warning(f"_extract_post_processor: Expected list, got {type(parsed)}")
+        return None
+
+    return parsed
+
+
+def _create_structure_post_processor(response_text: str, model_name: str):
+    """
+    Post-processor for create_structure stage.
+
+    Parses JSON response and validates structure format.
+    Returns None on failure to trigger automatic retry/fallback.
+
+    Args:
+        response_text: Raw LLM response text
+        model_name: Name of model that generated response
+
+    Returns:
+        Normalized ultimate_structure dict or None to trigger retry
+    """
+    try:
+        # Use existing JSON parsing function
+        parsed = _parse_json_from_response(response_text)
+
+        # Validate: should be dict or list
+        if not parsed or parsed == []:
+            logger.warning(f"_create_structure_post_processor: Empty result from {model_name}")
+            return None
+
+        # Normalize structure format
+        if isinstance(parsed, list):
+            logger.warning("⚠️ LLM returned array instead of object - normalizing")
+            parsed = {
+                "article_structure": parsed,
+                "writing_guidelines": {}
+            }
+        elif isinstance(parsed, dict):
+            if "article_structure" not in parsed:
+                logger.warning("⚠️ Missing 'article_structure' key - normalizing")
+                parsed = {
+                    "article_structure": parsed.get("sections", [parsed]),
+                    "writing_guidelines": parsed.get("writing_guidelines", {})
+                }
+
+        return parsed
+
+    except Exception as e:
+        logger.warning(f"_create_structure_post_processor: Failed to parse JSON from {model_name}: {e}")
+        return None  # Trigger retry/fallback
+
+
 def validate_content_quality_v3(content: str, min_length: int = 300,
                                 target_language: str = None,
                                 finish_reason: str = None) -> tuple:
@@ -831,37 +929,33 @@ def extract_sections_from_article(article_text: str, topic: str, base_path: str 
             stage_name="extract_sections"
         )
 
-        # Use unified LLM request system
+        # Use unified LLM request system with post-processor for automatic retry/fallback
         from src.llm_request import make_llm_request
-        response, actual_model = make_llm_request(
+        parsed_result, actual_model = make_llm_request(
             stage_name="extract_sections",
             messages=messages,
             temperature=0.3,
             token_tracker=token_tracker,
             base_path=base_path,
-            validation_level="minimal"  # Extract prompts uses minimal validation
+            validation_level="minimal",  # Extract prompts uses minimal validation
+            post_processor=_extract_post_processor  # ✅ Automatic retry/fallback on JSON parsing errors
         )
-        content = response.choices[0].message.content
-        content = clean_llm_tokens(content)  # Очищаем токены LLM
 
+        # parsed_result is already a List[Dict] from post_processor
         # Сохраняем запрос и ответ для отладки
         if base_path:
             save_llm_interaction(
                 base_path=base_path,
                 stage_name="extract_sections",
                 messages=messages,
-                response=content,
+                response=str(parsed_result),  # Convert to string for logging
                 request_id=source_id or "single",
                 extra_params={"response_format": "json_object", "topic": topic, "model": actual_model}
             )
-        
-        parsed_json = _parse_json_from_response(content)
-        if isinstance(parsed_json, list):
-            return parsed_json
-        elif isinstance(parsed_json, dict):
-            return parsed_json.get("data", [parsed_json])  # If no data key, return object wrapped in array
-        else:
-            return []
+
+        # Return parsed result directly (already List[Dict] from post_processor)
+        return parsed_result if isinstance(parsed_result, list) else []
+
     except Exception as e:
         logger.error(f"Failed to extract prompts via API: {e}")
         return []
@@ -1051,91 +1145,82 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
 
             ready_sections = "\n\n".join(ready_sections_parts) if ready_sections_parts else "Предыдущие разделы недоступны."
 
-        for attempt in range(1, SECTION_MAX_RETRIES + 1):
-            try:
-                if attempt > 1:
-                    logger.info(f"🔄 Retry attempt {attempt}/{SECTION_MAX_RETRIES} for section {idx}")
-
-                # Prepare section-specific prompt with ready_sections context
-                messages = _load_and_prepare_messages(
-                    content_type,
-                    "01_generate_section",
-                    {
-                        "topic": topic,
-                        "section_title": section.get("section_title", ""),
-                        "section_structure": json.dumps(section, indent=2, ensure_ascii=False),
-                        "ready_sections": ready_sections
-                    },
-                    variables_manager=variables_manager,
-                    stage_name="generate_article"
-                )
-
-                # Use unified LLM request with automatic fallback
-                from src.llm_request import make_llm_request
-                response_obj, actual_model = make_llm_request(
-                    stage_name="generate_article",
-                    messages=messages,
-                    temperature=0.3,
-                    token_tracker=token_tracker,
-                    base_path=section_path,
-                    validation_level="v3"  # Generate article uses v3.0 validation
-                )
-
-                section_content = response_obj.choices[0].message.content
-                section_content = clean_llm_tokens(section_content)  # Очищаем токены LLM
-
-                # Validation happens inside _make_llm_request_with_retry_sync (min_length=300)
-                # No additional validation needed here
-
-                # Save section interaction
-                if section_path:
-                    save_llm_interaction(
-                        base_path=section_path,
-                        stage_name="generate_section",
-                        messages=messages,
-                        response=section_content,
-                        extra_params={
-                            "topic": topic,
-                            "section_num": idx,
-                            "section_title": section.get("section_title", ""),
-                            "model": actual_model,
-                            "attempt": attempt
-                        }
-                    )
-
-                # Compact success log
-                char_count = len(section_content)
-                logger.info(f"Section {idx}/{total_sections}: {section_title}... ✅ ({char_count} chars)")
-
-                result = {
-                    "section_num": idx,
+        # No outer retry loop - make_llm_request() handles all retries internally (6 attempts total)
+        try:
+            # Prepare section-specific prompt with ready_sections context
+            messages = _load_and_prepare_messages(
+                content_type,
+                "01_generate_section",
+                {
+                    "topic": topic,
                     "section_title": section.get("section_title", ""),
-                    "content": section_content,
-                    "status": "success",
-                    "attempts": attempt
-                }
+                    "section_structure": json.dumps(section, indent=2, ensure_ascii=False),
+                    "ready_sections": ready_sections
+                },
+                variables_manager=variables_manager,
+                stage_name="generate_article"
+            )
 
-                generated_sections.append(result)
-                break  # Success, exit retry loop
+            # Use unified LLM request with automatic retry/fallback (6 attempts internally)
+            from src.llm_request import make_llm_request
 
-            except Exception as e:
-                logger.error(f"❌ Section {idx} attempt {attempt} failed: {e}")
-                if attempt < SECTION_MAX_RETRIES:
-                    wait_time = attempt * 5  # Progressive backoff: 5s, 10s, 15s
-                    logger.info(f"⏳ Waiting {wait_time}s before retry...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"💥 Section {idx} failed after {SECTION_MAX_RETRIES} attempts")
-                    result = {
+            # Check if llm_model override is specified via variables_manager
+            override_model = variables_manager.active_variables.get("llm_model") if variables_manager else None
+
+            response_obj, actual_model = make_llm_request(
+                stage_name="generate_article",
+                model_name=override_model,  # Override model if specified
+                messages=messages,
+                temperature=0.3,
+                token_tracker=token_tracker,
+                base_path=section_path,
+                validation_level="v3"  # Generate article uses v3.0 validation
+            )
+
+            section_content = response_obj.choices[0].message.content
+            section_content = clean_llm_tokens(section_content)  # Очищаем токены LLM
+
+            # Validation happens inside make_llm_request with retry/fallback (min_length=300)
+            # No additional validation needed here
+
+            # Save section interaction
+            if section_path:
+                save_llm_interaction(
+                    base_path=section_path,
+                    stage_name="generate_section",
+                    messages=messages,
+                    response=section_content,
+                    extra_params={
+                        "topic": topic,
                         "section_num": idx,
                         "section_title": section.get("section_title", ""),
-                        "content": f"<p>Не удалось сгенерировать раздел '{section_title}' после {SECTION_MAX_RETRIES} попыток. Последняя ошибка: {str(e)}</p>",
-                        "status": "failed",
-                        "error": str(e),
-                        "attempts": SECTION_MAX_RETRIES
+                        "model": actual_model
                     }
-                    generated_sections.append(result)
-                    break  # Give up on this section
+                )
+
+            # Compact success log
+            char_count = len(section_content)
+            logger.info(f"Section {idx}/{total_sections}: {section_title}... ✅ ({char_count} chars)")
+
+            result = {
+                "section_num": idx,
+                "section_title": section.get("section_title", ""),
+                "content": section_content,
+                "status": "success"
+            }
+
+            generated_sections.append(result)
+
+        except Exception as e:
+            logger.error(f"❌ Section {idx} failed after all retry attempts: {e}")
+            result = {
+                "section_num": idx,
+                "section_title": section.get("section_title", ""),
+                "content": f"<p>Не удалось сгенерировать раздел '{section_title}'. Ошибка: {str(e)}</p>",
+                "status": "failed",
+                "error": str(e)
+            }
+            generated_sections.append(result)
 
     # Report generation status
     successful_sections = [s for s in generated_sections if s["status"] == "success"]
@@ -1587,108 +1672,98 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
         group_num = group_idx + 1
         logger.info(f"🔍 Fact-checking group {group_num}/{len(section_groups)} with {len(group)} sections")
 
-        # RETRY LOOP for each group
-        for attempt in range(1, SECTION_MAX_RETRIES + 1):
-            try:
-                logger.info(f"🔄 Group {group_num} fact-check attempt {attempt}/{SECTION_MAX_RETRIES}")
+        # No outer retry loop - make_llm_request() handles all retries internally (6 attempts total)
+        try:
 
-                # Combine content from all sections in the group
-                combined_content = ""
-                section_titles = []
+            # Combine content from all sections in the group
+            combined_content = ""
+            section_titles = []
 
-                for section in group:
-                    section_title = section.get("section_title", "Untitled Section")
-                    section_content = section.get("content", "")
-                    section_titles.append(section_title)
-                    combined_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+            for section in group:
+                section_title = section.get("section_title", "Untitled Section")
+                section_content = section.get("content", "")
+                section_titles.append(section_title)
+                combined_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
 
-                # Prepare messages for fact-checking the group
-                messages = _load_and_prepare_messages(
-                    content_type,
-                    "10_fact_check",
-                    {
-                        "topic": topic,
-                        "section_title": f"Группа {group_num} ({', '.join(section_titles)})",
-                        "section_content": combined_content.strip()
-                    },
-                    variables_manager=variables_manager,
-                    stage_name="fact_check"
-                )
+            # Prepare messages for fact-checking the group
+            messages = _load_and_prepare_messages(
+                content_type,
+                "10_fact_check",
+                {
+                    "topic": topic,
+                    "section_title": f"Группа {group_num} ({', '.join(section_titles)})",
+                    "section_content": combined_content.strip()
+                },
+                variables_manager=variables_manager,
+                stage_name="fact_check"
+            )
 
-                # Create group-specific path
-                group_path = os.path.join(base_path, f"group_{group_num}") if base_path else None
+            # Create group-specific path
+            group_path = os.path.join(base_path, f"group_{group_num}") if base_path else None
 
-                # Make fact-check request
-                response_obj, actual_model = make_llm_request(
-                    stage_name="fact_check",
-                    model_name=model_name or LLM_MODELS.get("fact_check"),
-                    messages=messages,
-                    token_tracker=token_tracker,
+            # Make fact-check request with automatic retry/fallback (6 attempts internally)
+            response_obj, actual_model = make_llm_request(
+                stage_name="fact_check",
+                model_name=model_name or LLM_MODELS.get("fact_check"),
+                messages=messages,
+                token_tracker=token_tracker,
+                base_path=group_path,
+                temperature=0.2,  # Low temperature for factual accuracy
+                validation_level="minimal"  # Fact-check uses minimal validation (doc: short factual answers)
+            )
+
+            fact_checked_content = response_obj.choices[0].message.content
+            fact_checked_content = clean_llm_tokens(fact_checked_content)  # Очищаем токены LLM
+
+            # DEBUG: Log content size immediately after extraction
+            logger.info(f"🔍 FACT_CHECK EXTRACTED CONTENT: {len(fact_checked_content)} chars")
+
+            # Debug logging to track content size
+            logger.info(f"📊 Group {group_num} - Response content size: {len(fact_checked_content)} chars")
+            logger.info(f"📊 Group {group_num} - First 100 chars: {fact_checked_content[:100]}...")
+            logger.info(f"📊 Group {group_num} - Last 100 chars: ...{fact_checked_content[-100:]}")
+
+            # Save interaction
+            if group_path:
+                save_llm_interaction(
                     base_path=group_path,
-                    temperature=0.2,  # Low temperature for factual accuracy
-                    validation_level="minimal"  # Fact-check uses minimal validation (doc: short factual answers)
+                    stage_name="fact_check",
+                    messages=messages,
+                    response=fact_checked_content,
+                    request_id=f"group_{group_num}_fact_check",
+                    extra_params={"model": actual_model}
                 )
 
-                fact_checked_content = response_obj.choices[0].message.content
-                fact_checked_content = clean_llm_tokens(fact_checked_content)  # Очищаем токены LLM
+            fact_checked_content_parts.append(fact_checked_content)
+            logger.info(f"✅ Group {group_num} fact-checked successfully")
 
-                # DEBUG: Log content size immediately after extraction
-                logger.info(f"🔍 FACT_CHECK EXTRACTED CONTENT: {len(fact_checked_content)} chars")
+            # Add delay between group fact-check requests to avoid rate limits
+            if group_idx < len(section_groups) - 1:
+                delay = 3  # 3 seconds between group requests
+                logger.info(f"⏳ Waiting {delay}s before next group fact-check...")
+                time.sleep(delay)
 
-                # Debug logging to track content size
-                logger.info(f"📊 Group {group_num} - Response content size: {len(fact_checked_content)} chars")
-                logger.info(f"📊 Group {group_num} - First 100 chars: {fact_checked_content[:100]}...")
-                logger.info(f"📊 Group {group_num} - Last 100 chars: ...{fact_checked_content[-100:]}")
+        except Exception as e:
+            # All retry attempts exhausted in make_llm_request
+            logger.error(f"💥 Group {group_num} fact-check failed after all retry attempts: {e}")
 
-                # Save interaction
-                if group_path:
-                    save_llm_interaction(
-                        base_path=group_path,
-                        stage_name="fact_check",
-                        messages=messages,
-                        response=fact_checked_content,
-                        request_id=f"group_{group_num}_fact_check",
-                        extra_params={"model": actual_model}
-                    )
+            # Track failure in status
+            fact_check_status["failed_groups"] += 1
+            group_section_titles = [section.get("section_title", "Untitled Section") for section in group]
+            fact_check_status["failed_sections"].extend(group_section_titles)
+            fact_check_status["error_details"].append({
+                "group": group_num,
+                "sections": group_section_titles,
+                "error": str(e)
+            })
 
-                fact_checked_content_parts.append(fact_checked_content)
-                logger.info(f"✅ Group {group_num} fact-checked successfully")
-
-                # Add delay between group fact-check requests to avoid rate limits
-                if group_idx < len(section_groups) - 1:
-                    delay = 3  # 3 seconds between group requests
-                    logger.info(f"⏳ Waiting {delay}s before next group fact-check...")
-                    time.sleep(delay)
-
-                break  # Success - exit retry loop
-
-            except Exception as e:
-                logger.error(f"❌ Group {group_num} attempt {attempt} failed: {e}")
-                if attempt < SECTION_MAX_RETRIES:
-                    wait_time = attempt * 3  # Progressive backoff: 3s, 6s, 9s
-                    logger.info(f"⏳ Waiting {wait_time}s before retry...")
-                    time.sleep(wait_time)
-                else:
-                    # All attempts exhausted
-                    logger.error(f"💥 Group {group_num} fact-check failed after {SECTION_MAX_RETRIES} attempts")
-
-                    # Track failure in status
-                    fact_check_status["failed_groups"] += 1
-                    group_section_titles = [section.get("section_title", "Untitled Section") for section in group]
-                    fact_check_status["failed_sections"].extend(group_section_titles)
-                    fact_check_status["error_details"].append({
-                        "group": group_num,
-                        "sections": group_section_titles,
-                        "error": str(e)
-                    })
-
-                    # Keep original content for this group if fact-check fails
-                    group_original_content = ""
-                    for section in group:
-                        section_title = section.get("section_title", "Untitled Section")
-                        section_content = section.get("content", "")
-                        group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
-                    fact_checked_content_parts.append(group_original_content.strip())
+            # Keep original content for this group if fact-check fails
+            group_original_content = ""
+            for section in group:
+                section_title = section.get("section_title", "Untitled Section")
+                section_content = section.get("content", "")
+                group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+            fact_checked_content_parts.append(group_original_content.strip())
 
     # Combine all fact-checked content parts
     combined_fact_checked_content = "\n\n".join(fact_checked_content_parts)
@@ -1812,30 +1887,33 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
         logger.error(f"Failed to load editorial review prompt: {e}")
         return _create_error_response(topic, f"Ошибка загрузки промпта: {str(e)}", "prompt-error")
 
-    # Use unified LLM request with automatic fallback
+    # Use unified LLM request with automatic fallback AND post-processing
     try:
         from src.llm_request import make_llm_request
 
-        response_obj, actual_model = make_llm_request(
+        # Check if llm_model override is specified via variables_manager
+        override_model = variables_manager.active_variables.get("llm_model") if variables_manager else None
+
+        # Call make_llm_request with post_processor for automatic retry/fallback on JSON parsing errors
+        parsed_result, actual_model = make_llm_request(
             stage_name="editorial_review",
+            model_name=override_model,  # Override model if specified
             messages=messages,
             temperature=0.2,
-            response_format={"type": "json_object"},  # Request JSON mode
+            # NO response_format - let model return raw JSON, parse with normalization
             token_tracker=token_tracker,
             base_path=base_path,
-            validation_level="minimal"  # Editorial uses minimal validation (doc: content already validated on stages 8+9)
+            validation_level="minimal",  # Editorial uses minimal validation (doc: content already validated on stages 8+9)
+            post_processor=_editorial_post_processor  # ✅ Automatic retry/fallback on JSON parsing errors
         )
 
-        response = response_obj.choices[0].message.content
-        response = clean_llm_tokens(response)  # Clean LLM tokens
-
-        # Save interaction
+        # Save interaction (post-processor already parsed and cleaned)
         if base_path:
             save_llm_interaction(
                 base_path=base_path,
                 stage_name="editorial_review",
                 messages=messages,
-                response=response,
+                response=json.dumps(parsed_result, ensure_ascii=False, indent=2),
                 request_id="editorial_review",
                 extra_params={
                     "topic": topic,
@@ -1843,25 +1921,17 @@ def editorial_review(raw_response: str, topic: str, base_path: str = None,
                 }
             )
 
-        # Parse JSON with normalization (4 attempts)
-        parsed_result = _try_parse_editorial_json(response, actual_model, 1, "final")
-
-        if parsed_result is not None:
-            logger.info(f"✅ Editorial review SUCCESS with {actual_model}")
-            logger.info(f"📄 Article title: {parsed_result.get('title', 'No title')}")
-            return parsed_result
-        else:
-            logger.error("❌ JSON parsing failed after successful LLM response")
-            return _create_error_response(topic, "Не удалось распарсить JSON ответ", "json-parse-error")
+        logger.info(f"✅ Editorial review SUCCESS with {actual_model}")
+        logger.info(f"📄 Article title: {parsed_result.get('title', 'No title')}")
+        return parsed_result
 
     except Exception as e:
-        logger.error(f"🚨 Editorial review failed: {e}", exc_info=True)
-
-    return _create_error_response(
-        topic,
-        "Не удалось выполнить редакторскую правку после всех попыток с основной и резервной моделями",
-        "editorial-failure"
-    )
+        logger.error(f"🚨 Editorial review failed after all retries and fallback: {e}", exc_info=True)
+        return _create_error_response(
+            topic,
+            "Не удалось выполнить редакторскую правку после всех попыток с основной и резервной моделями",
+            "editorial-failure"
+        )
 
 
 def _repair_json_control_chars(text: str) -> str:
@@ -2106,103 +2176,92 @@ def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = N
         group_num = group_idx + 1
         logger.info(f"🔗 Placing links in group {group_num}/{len(section_groups)} with {len(group)} sections")
 
-        # RETRY LOOP for each group
-        for attempt in range(1, SECTION_MAX_RETRIES + 1):
-            try:
-                logger.info(f"🔄 Group {group_num} link placement attempt {attempt}/{SECTION_MAX_RETRIES}")
+        # No outer retry loop - make_llm_request() handles all retries internally (6 attempts total)
+        try:
+            # Combine content from all sections in the group
+            combined_content = ""
+            section_titles = []
 
-                # Combine content from all sections in the group
-                combined_content = ""
-                section_titles = []
+            for section in group:
+                section_title = section.get("section_title", "Untitled Section")
+                section_content = section.get("content", "")
+                section_titles.append(section_title)
+                combined_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
 
-                for section in group:
-                    section_title = section.get("section_title", "Untitled Section")
-                    section_content = section.get("content", "")
-                    section_titles.append(section_title)
-                    combined_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+            # Prepare messages for link placement in the group
+            messages = _load_and_prepare_messages(
+                content_type,
+                "11_link_placement",
+                {
+                    "topic": topic,
+                    "section_title": f"Группа {group_num} ({', '.join(section_titles)})",
+                    "section_content": combined_content.strip()
+                },
+                variables_manager=variables_manager,
+                stage_name="link_placement"
+            )
 
-                # Prepare messages for link placement in the group
-                messages = _load_and_prepare_messages(
-                    content_type,
-                    "11_link_placement",
-                    {
-                        "topic": topic,
-                        "section_title": f"Группа {group_num} ({', '.join(section_titles)})",
-                        "section_content": combined_content.strip()
-                    },
-                    variables_manager=variables_manager,
-                    stage_name="link_placement"
-                )
+            # Create group-specific path
+            group_path = os.path.join(base_path, f"group_{group_num}") if base_path else None
 
-                # Create group-specific path
-                group_path = os.path.join(base_path, f"group_{group_num}") if base_path else None
+            # Make link placement request with automatic retry/fallback (6 attempts internally)
+            response_obj, actual_model = make_llm_request(
+                stage_name="link_placement",
+                model_name=model_name or LLM_MODELS.get("link_placement"),
+                messages=messages,
+                token_tracker=token_tracker,
+                base_path=group_path,
+                temperature=0.3,  # Slightly higher for creative link placement
+                validation_level="minimal"  # Link placement uses minimal validation (doc: HTML content causes false positives)
+            )
 
-                # Make link placement request
-                response_obj, actual_model = make_llm_request(
-                    stage_name="link_placement",
-                    model_name=model_name or LLM_MODELS.get("link_placement"),
-                    messages=messages,
-                    token_tracker=token_tracker,
+            content_with_links = response_obj.choices[0].message.content
+            content_with_links = clean_llm_tokens(content_with_links)  # Clean LLM tokens
+
+            # Debug logging
+            logger.info(f"📊 Group {group_num} - Response content size: {len(content_with_links)} chars")
+
+            # Save interaction
+            if group_path:
+                save_llm_interaction(
                     base_path=group_path,
-                    temperature=0.3,  # Slightly higher for creative link placement
-                    validation_level="minimal"  # Link placement uses minimal validation (doc: HTML content causes false positives)
+                    stage_name="link_placement",
+                    messages=messages,
+                    response=content_with_links,
+                    request_id=f"group_{group_num}_link_placement",
+                    extra_params={"model": actual_model}
                 )
 
-                content_with_links = response_obj.choices[0].message.content
-                content_with_links = clean_llm_tokens(content_with_links)  # Clean LLM tokens
+            content_with_links_parts.append(content_with_links)
+            logger.info(f"✅ Group {group_num} link placement completed successfully")
 
-                # Debug logging
-                logger.info(f"📊 Group {group_num} - Response content size: {len(content_with_links)} chars")
+            # Add delay between group requests to avoid rate limits
+            if group_idx < len(section_groups) - 1:
+                delay = 3  # 3 seconds between group requests
+                logger.info(f"⏳ Waiting {delay}s before next group...")
+                time.sleep(delay)
 
-                # Save interaction
-                if group_path:
-                    save_llm_interaction(
-                        base_path=group_path,
-                        stage_name="link_placement",
-                        messages=messages,
-                        response=content_with_links,
-                        request_id=f"group_{group_num}_link_placement",
-                        extra_params={"model": actual_model}
-                    )
+        except Exception as e:
+            # All retry attempts exhausted in make_llm_request
+            logger.error(f"💥 Group {group_num} link placement failed after all retry attempts: {e}")
 
-                content_with_links_parts.append(content_with_links)
-                logger.info(f"✅ Group {group_num} link placement completed successfully")
+            # Track failure in status
+            link_placement_status["failed_groups"] += 1
+            group_section_titles = [section.get("section_title", "Untitled Section") for section in group]
+            link_placement_status["failed_sections"].extend(group_section_titles)
+            link_placement_status["error_details"].append({
+                "group": group_num,
+                "sections": group_section_titles,
+                "error": str(e)
+            })
 
-                # Add delay between group requests to avoid rate limits
-                if group_idx < len(section_groups) - 1:
-                    delay = 3  # 3 seconds between group requests
-                    logger.info(f"⏳ Waiting {delay}s before next group...")
-                    time.sleep(delay)
-
-                break  # Success - exit retry loop
-
-            except Exception as e:
-                logger.error(f"❌ Group {group_num} attempt {attempt} failed: {e}")
-                if attempt < SECTION_MAX_RETRIES:
-                    wait_time = attempt * 3  # Progressive backoff: 3s, 6s, 9s
-                    logger.info(f"⏳ Waiting {wait_time}s before retry...")
-                    time.sleep(wait_time)
-                else:
-                    # All attempts exhausted
-                    logger.error(f"💥 Group {group_num} link placement failed after {SECTION_MAX_RETRIES} attempts")
-
-                    # Track failure in status
-                    link_placement_status["failed_groups"] += 1
-                    group_section_titles = [section.get("section_title", "Untitled Section") for section in group]
-                    link_placement_status["failed_sections"].extend(group_section_titles)
-                    link_placement_status["error_details"].append({
-                        "group": group_num,
-                        "sections": group_section_titles,
-                        "error": str(e)
-                    })
-
-                    # Keep original content for this group if link placement fails
-                    group_original_content = ""
-                    for section in group:
-                        section_title = section.get("section_title", "Untitled Section")
-                        section_content = section.get("content", "")
-                        group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
-                    content_with_links_parts.append(group_original_content.strip())
+            # Keep original content for this group if link placement fails
+            group_original_content = ""
+            for section in group:
+                section_title = section.get("section_title", "Untitled Section")
+                section_content = section.get("content", "")
+                group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+            content_with_links_parts.append(group_original_content.strip())
 
     # Combine all content parts with links
     combined_content_with_links = "\n\n".join(content_with_links_parts)
@@ -2498,3 +2557,81 @@ def translate_sections(sections: List[Dict], target_language: str, topic: str, b
     translation_status["success"] = len(translation_status["failed_sections"]) == 0
 
     return translated_sections, translation_status
+
+
+def create_structure(extracted_structures: List[List[Dict]], topic: str, 
+                    base_path: str = None, token_tracker=None,
+                    model_name: str = None, content_type: str = "basic_articles",
+                    variables_manager=None) -> List[Dict]:
+    """
+    Wrapper for creating ultimate structure from extracted structures.
+    Used primarily for testing the retry/fallback mechanism.
+    
+    Args:
+        extracted_structures: List of structure lists from different sources
+        topic: Topic of the article
+        base_path: Base path for saving artifacts (optional)
+        token_tracker: Token tracker instance (optional)
+        model_name: LLM model to use (optional)
+        content_type: Content type (default: basic_articles)
+        variables_manager: Variables manager instance (optional)
+        
+    Returns:
+        List of section dictionaries (article_structure)
+    """
+    try:
+        messages = _load_and_prepare_messages(
+            content_type,
+            "02_create_ultimate_structure",
+            {"topic": topic, "article_text": json.dumps(extracted_structures, indent=2)},
+            variables_manager=variables_manager,
+            stage_name="create_structure"
+        )
+        
+        # Use unified LLM request with automatic fallback
+        response_obj, actual_model = make_llm_request(
+            stage_name="create_structure",
+            messages=messages,
+            temperature=0.3,
+            token_tracker=token_tracker,
+            base_path=base_path,
+            validation_level="minimal"
+        )
+        
+        content = response_obj.choices[0].message.content
+        
+        if base_path:
+            save_llm_interaction(
+                base_path=base_path,
+                stage_name="create_structure",
+                messages=messages,
+                response=content,
+                request_id="ultimate_structure"
+            )
+        
+        ultimate_structure = _parse_json_from_response(content)
+        
+        # Normalize structure: handle both dict and list formats
+        if isinstance(ultimate_structure, list):
+            # LLM returned array - wrap it
+            ultimate_structure = {
+                "article_structure": ultimate_structure,
+                "writing_guidelines": {}
+            }
+        elif isinstance(ultimate_structure, dict):
+            # Check if it has expected keys
+            if "article_structure" not in ultimate_structure:
+                ultimate_structure = {
+                    "article_structure": ultimate_structure.get("sections", [ultimate_structure]),
+                    "writing_guidelines": ultimate_structure.get("writing_guidelines", {})
+                }
+        
+        # Return just the sections list
+        return ultimate_structure.get("article_structure", [])
+        
+    except Exception as e:
+        logger.error(f"create_structure failed: {e}")
+        # Graceful fallback: return first extracted structure
+        if extracted_structures and len(extracted_structures) > 0:
+            return extracted_structures[0] if isinstance(extracted_structures[0], list) else [extracted_structures[0]]
+        return []

@@ -51,7 +51,7 @@ class LLMResponseValidator:
             validation_level: "v3", "minimal", or "none"
             custom_validator: Custom validation function (overrides validation_level)
             **kwargs: Additional parameters passed to validator
-                - min_length: Minimum text length (default: 300 for v3, 100 for minimal)
+                - min_length: Minimum text length (default: 300 for v3, 300 for minimal)
                 - target_language: Target language for v3 validation
                 - finish_reason: API finish reason for v3 validation
 
@@ -68,7 +68,7 @@ class LLMResponseValidator:
             return custom_validator(response_text, **kwargs)
 
         if validation_level == "minimal":
-            min_length = kwargs.get("min_length", 100)
+            min_length = kwargs.get("min_length", 300)
             return LLMResponseValidator._validate_minimal(response_text, min_length)
 
         if validation_level == "v3":
@@ -88,7 +88,7 @@ class LLMResponseValidator:
         raise ValueError(f"Unknown validation level: {validation_level}")
 
     @staticmethod
-    def _validate_minimal(text: str, min_length: int = 100) -> bool:
+    def _validate_minimal(text: str, min_length: int = 300) -> bool:
         """
         Minimal validation: basic length check.
 

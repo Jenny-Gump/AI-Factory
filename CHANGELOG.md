@@ -1,5 +1,198 @@
 # Content Factory Changelog
 
+## 🚀 Version 2.4.0 - October 9, 2025
+
+### **UNIFIED RETRY/FALLBACK SYSTEM WITH POST-PROCESSOR PATTERN**
+
+#### **🔄 ARCHITECTURE ENHANCEMENT: Post-Processing Integration**
+
+**Проблема**: Функции с JSON post-processing (`editorial_review`, `extract_sections_from_article`) НЕ ИМЕЛИ retry/fallback при ошибках парсинга ПОСЛЕ успешного LLM ответа.
+
+**Решение**: Внедрен post-processor паттерн в централизованную систему `make_llm_request()`.
+
+**Impact**: Все функции теперь имеют унифицированную защиту: 6 автоматических попыток (3 primary + 3 fallback) как для LLM вызовов, так и для downstream обработки (JSON parsing, validation).
+
+#### **🆕 NEW FEATURES**
+
+**1. Post-Processor Pattern:**
+```python
+# NEW: post_processor parameter in make_llm_request()
+def make_request(
+    self,
+    stage_name: str,
+    messages: List[Dict[str, str]],
+    post_processor: Optional[Callable[[str, str], Any]] = None,  # 🆕 NEW
+    **validation_kwargs
+) -> Tuple[Any, str]:
+    """
+    post_processor: Optional function(response_text, model_name) -> processed_result
+                   Если возвращает None или raises exception → автоматический retry/fallback
+    """
+```
+
+**2. Specialized Post-Processors:**
+- `_editorial_post_processor()` - для editorial_review с 5-уровневой JSON нормализацией
+- `_extract_post_processor()` - для extract_sections_from_article с JSON parsing
+- `_create_structure_post_processor()` - для create_structure с JSON parsing и нормализацией формата
+
+**3. Automatic Retry/Fallback на JSON Parsing Errors:**
+- LLM ответ успешен → JSON parsing fails → автоматический retry с той же или fallback моделью
+- Максимум 6 попыток (3 primary + 3 fallback) для downstream обработки
+- Полное логирование всех post-processing ошибок
+
+#### **📦 REFACTORED FUNCTIONS**
+
+**editorial_review() (src/llm_processing.py:1873-1917):**
+- **УДАЛЕНО**: Outer retry loop (было 3 × 6 = 18 попыток)
+- **ДОБАВЛЕНО**: Post-processor integration
+- **РЕЗУЛЬТАТ**: Унифицированные 6 попыток через централизованную систему
+
+```python
+# AFTER: Автоматический retry/fallback на JSON parsing errors
+parsed_result, actual_model = make_llm_request(
+    stage_name="editorial_review",
+    messages=messages,
+    temperature=0.2,
+    token_tracker=token_tracker,
+    base_path=base_path,
+    validation_level="minimal",
+    post_processor=_editorial_post_processor  # ✅ Унифицированная защита
+)
+```
+
+**extract_sections_from_article() (src/llm_processing.py:887-897):**
+- **УДАЛЕНО**: Manual JSON parsing + error handling без retry
+- **ДОБАВЛЕНО**: Post-processor integration
+- **РЕЗУЛЬТАТ**: Автоматический retry/fallback при JSON parsing failures
+
+```python
+# AFTER: Автоматический retry/fallback на JSON parsing errors
+parsed_result, actual_model = make_llm_request(
+    stage_name="extract_sections",
+    messages=messages,
+    temperature=0.3,
+    token_tracker=token_tracker,
+    base_path=base_path,
+    validation_level="minimal",
+    post_processor=_extract_post_processor  # ✅ Унифицированная защита
+)
+```
+
+**create_structure() (main.py:317):**
+- **УДАЛЕНО**: Manual JSON parsing + normalization с двойным вызовом `normalize_ultimate_structure()`
+- **ДОБАВЛЕНО**: Post-processor integration с единой точкой нормализации
+- **РЕЗУЛЬТАТ**: Автоматический retry/fallback при JSON parsing failures + format normalization
+
+```python
+# AFTER: Автоматический retry/fallback на JSON parsing + normalization errors
+ultimate_structure, actual_model = make_llm_request(
+    stage_name="create_structure",
+    messages=messages,
+    temperature=0.3,
+    token_tracker=token_tracker,
+    base_path=paths["ultimate_structure"],
+    validation_level="minimal",
+    post_processor=_create_structure_post_processor  # ✅ Унифицированная защита
+)
+```
+
+#### **🗑️ REMOVED: Outer Retry Loops**
+
+**Deleted redundant outer retry loops from 3 functions:**
+
+1. **generate_article_by_sections()** (llm_processing.py:1103-1178)
+   - **BEFORE**: Outer retry loop + 6 inner retries = 18 total attempts
+   - **AFTER**: Унифицированные 6 попыток через make_llm_request()
+   - **Lines removed**: ~15 lines of retry logic
+
+2. **fact_check_sections()** (llm_processing.py:1630-1722)
+   - **BEFORE**: Outer retry loop + 6 inner retries = 18 total attempts
+   - **AFTER**: Унифицированные 6 попыток через make_llm_request()
+   - **Lines removed**: ~18 lines of retry logic
+
+3. **place_links_in_sections()** (llm_processing.py:2134-2219)
+   - **BEFORE**: Outer retry loop + 6 inner retries = 18 total attempts
+   - **AFTER**: Унифицированные 6 попыток через make_llm_request()
+   - **Lines removed**: ~17 lines of retry logic
+
+**Total lines removed**: ~50 lines of redundant retry logic
+
+#### **🎯 ARCHITECTURE BENEFITS**
+
+**BEFORE (v2.3.2):**
+```
+Функции с outer retry: 4 из 8 (inconsistent)
+Функции с JSON post-processing: 2 из 8 (NO retry on parsing errors)
+Total attempts: 18 (3 outer × 6 inner) vs 6 (no outer loop) = INCONSISTENT
+```
+
+**AFTER (v2.4.0):**
+```
+Все функции: Унифицированные 6 попыток (3 primary + 3 fallback)
+Post-processor pattern: Автоматический retry/fallback на downstream errors
+Consistency: 100% - все функции используют одну архитектуру
+```
+
+#### **📚 DOCUMENTATION UPDATES**
+
+**Modified Files:**
+1. **docs/flow.md**
+   - Updated Editorial Review section (lines 607-620): новая retry система
+   - Updated Error Handling section (lines 744-758): унифицированная архитектура
+   - Changed "3×3 попытки" → "6 автоматических попыток (3 primary + 3 fallback)"
+   - Added post-processor pattern documentation
+
+2. **README.md**
+   - Updated version: 2.3.1 → 2.4.0 (line 123)
+   - Updated changelog entry (lines 125-130): v2.4.0 unified retry/fallback
+   - Updated "3×2 retry" → "6 автоматических попыток" (line 10)
+
+3. **CHANGELOG.md**
+   - This changelog entry
+
+#### **✅ SOLID PRINCIPLES COMPLIANCE**
+
+- **Single Responsibility**: Каждая функция отвечает только за свой этап, retry/fallback в централизованной системе
+- **Open/Closed**: Легко добавить новые post-processors без изменения make_llm_request()
+- **Liskov Substitution**: Все post-processors имеют одинаковую сигнатуру
+- **Interface Segregation**: Минимальный интерфейс post-processor (2 параметра, 1 return value)
+- **Dependency Inversion**: make_llm_request() зависит от абстракции (Callable), не от конкретных функций
+
+#### **🐛 BUGS FIXED**
+
+**Critical Bug**: JSON parsing failures AFTER successful LLM response had NO retry/fallback
+- **Problem**: `editorial_review()` и `extract_sections_from_article()` могли фейлиться из-за malformed JSON от DeepSeek
+- **Example**: "Expecting value: line 5241 column 1 (char 28820)" - контент обрывается
+- **Solution**: Post-processor pattern автоматически retry с той же или fallback моделью
+- **Evidence**: /tmp/full_analysis.txt lines 40-44, 62-64
+
+#### **⚠️ BREAKING CHANGES**
+
+None - все изменения внутренние, public API не изменился.
+
+#### **🔍 MIGRATION NOTES**
+
+**For developers extending pipeline:**
+- Используйте `post_processor` parameter в `make_llm_request()` для downstream обработки
+- Post-processor signature: `Callable[[str, str], Any]` (response_text, model_name) -> result or None
+- Returning None или raising exception → автоматический retry/fallback
+
+**Example:**
+```python
+def my_post_processor(response_text: str, model_name: str):
+    cleaned = clean_llm_tokens(response_text)
+    parsed = json.loads(cleaned)  # Raises on error → automatic retry
+    return parsed
+
+result, model = make_llm_request(
+    stage_name="my_stage",
+    messages=messages,
+    post_processor=my_post_processor  # ✅ Automatic retry/fallback on JSON errors
+)
+```
+
+---
+
 ## 🏗️ Version 2.3.2 - October 8, 2025
 
 ### **MAJOR REFACTORING: Unified LLM Request System**

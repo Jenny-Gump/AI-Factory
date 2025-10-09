@@ -40,12 +40,13 @@
 
 ### **6 научно-обоснованных уровней детекции**
 
-**Location**: `src/llm_processing.py:50-195`
+**Location**: `src/llm_validation.py:28-278` (class LLMResponseValidator)
 
 ```python
-def validate_content_quality_v3(content: str, min_length: int = 300,
-                                target_language: str = None,
-                                finish_reason: str = None) -> tuple:
+@staticmethod
+def _validate_v3(content: str, min_length: int = 300,
+                 target_language: str = None,
+                 finish_reason: str = None) -> Tuple[bool, str]:
     """
     Многоуровневая валидация качества LLM контента (v3.0).
 
@@ -227,16 +228,16 @@ def validate_content_quality(content: str, min_length: int = 50) -> bool:
 ### Этапы с v3.0 валидацией (6 уровней):
 
 **Этап 8: Генерация статьи** (`generate_article_by_sections`)
-- Применяется: `validate_content_quality_v3()` в `_make_llm_request_with_retry_sync()`
-- Параметры: `min_length=300`, `target_language=None`, `finish_reason=auto`
+- Применяется: `LLMResponseValidator.validate()` в `make_llm_request()` (src/llm_request.py)
+- Параметры: `validation_level="v3"`, `min_length=300`, `target_language=None`, `finish_reason=auto`
 - Retry: 3 attempts primary + 3 attempts fallback
 - Все 6 уровней проверки: compression, entropy, bigrams, word density, finish_reason
 
 **Этап 9: Перевод** (`translate_sections`)
-- Применяется: `validate_content_quality_v3()` в `_make_llm_request_with_retry_sync()`
-- Параметры: `min_length=300`, `target_language='ru'/'en'/etc`, `finish_reason=auto`
+- Применяется: `LLMResponseValidator.validate()` с `custom_validator=translation_validator`
+- Параметры: `validation_level="v3"` (через custom validator), `min_length=300`, `target_language='ru'/'en'/etc`, `finish_reason=auto`
 - Retry: 3 attempts primary + 3 attempts fallback
-- Все 6 уровней проверки + **language check** для целевого языка
+- Все 6 уровней проверки + **language check** + **length ratio check (80-125%)**
 
 ### Этапы с минимальной валидацией:
 
@@ -253,8 +254,8 @@ def validate_content_quality(content: str, min_length: int = 50) -> bool:
 - Причина: HTML-контент с ссылками может иметь низкий bigram uniqueness
 
 **Этап 12: Редакторская обработка** (`editorial_review`)
-- Валидация: только длина ≥ 300 символов
-- Причина: контент уже проверен на этапах 8 (генерация) и 9 (перевод), полная v3.0 валидация избыточна
+- Валидация: `validation_level="minimal"` (только length ≥ 100 chars через `LLMResponseValidator`)
+- Причина: контент уже проверен полной v3.0 валидацией на этапах 8 (генерация) и 9 (перевод)
 
 ### Retry Strategy v3.0:
 
