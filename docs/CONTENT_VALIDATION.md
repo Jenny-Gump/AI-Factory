@@ -441,4 +441,253 @@ success, reason = validate_content_quality_v3(content, target_language='en')
 
 ---
 
+## Troubleshooting Validation Failures
+
+### Common Scenarios
+
+#### 1. "Compression ratio too high" (Repetitive Content)
+
+**Symptom**:
+```
+⚠️ v3.0 validation failed: Compression ratio too high: 4.8 (threshold: 4.0)
+```
+
+**Cause**: LLM generated repetitive/spam-like content
+
+**Example**:
+```
+"This is important. This is important. This is important..."
+```
+
+**Solutions**:
+1. **Adjust threshold** (if false positive):
+   ```python
+   # src/llm_validation.py:150
+   COMPRESSION_THRESHOLD = 4.5  # Increase from 4.0
+   ```
+
+2. **Improve prompt** - Add "avoid repetition" instruction
+
+3. **Change model** - Try different model (fallback will trigger automatically)
+
+4. **Check prompt variables** - Ensure no duplicate content in prompt
+
+---
+
+#### 2. "Shannon entropy too low" (Low Information Density)
+
+**Symptom**:
+```
+⚠️ v3.0 validation failed: Shannon entropy too low: 2.2 (threshold: 2.5)
+```
+
+**Cause**: Content has low information density (e.g., "aaaa bbbb cccc")
+
+**Solutions**:
+1. **Adjust threshold**:
+   ```python
+   # src/llm_validation.py:165
+   ENTROPY_THRESHOLD = 2.3  # Lower from 2.5
+   ```
+
+2. **Review prompt** - Ensure it asks for diverse content
+
+3. **Check target language** - Some languages have lower entropy
+
+---
+
+#### 3. "Unique bigrams too low" (Repetitive Patterns)
+
+**Symptom**:
+```
+⚠️ v3.0 validation failed: Unique bigrams: 12% (threshold: 15%)
+```
+
+**Cause**: Repetitive word pairs (e.g., "the the the the")
+
+**Solutions**:
+1. **Adjust threshold**:
+   ```python
+   # src/llm_validation.py:188
+   BIGRAMS_THRESHOLD = 12  # Lower from 15
+   ```
+
+2. **Check LLM response** - Inspect ERROR file in llm_responses_raw/
+
+3. **Try fallback model** (automatic after 3 attempts)
+
+---
+
+#### 4. "Word density out of range"
+
+**Symptom**:
+```
+⚠️ v3.0 validation failed: Word density: 3.2% (valid range: 5-40%)
+```
+
+**Cause**: Too many or too few spaces/newlines relative to content
+
+**Solutions**:
+1. **Adjust range**:
+   ```python
+   # src/llm_validation.py:205-206
+   MIN_WORD_DENSITY = 4  # Lower from 5
+   MAX_WORD_DENSITY = 45  # Raise from 40
+   ```
+
+2. **Check response format** - LLM might be returning malformed content
+
+---
+
+#### 5. "Finish reason: length/content_filter" (Truncated/Filtered)
+
+**Symptom**:
+```
+⚠️ v3.0 validation failed: Invalid finish_reason: length
+```
+
+**Cause**: Response was cut off (hit max_tokens) or filtered
+
+**Solutions**:
+1. **Increase max_tokens**:
+   ```python
+   # In stage-specific code:
+   max_tokens=8192  # Increase from default
+   ```
+
+2. **Review content policy** - If `content_filter`, check prompt for violations
+
+3. **Split into smaller sections** - Reduce content length per request
+
+---
+
+#### 6. "Language check failed" (Wrong Language)
+
+**Symptom**:
+```
+⚠️ v3.0 validation failed: Language check failed: expected cyrillic, got latin
+```
+
+**Cause**: LLM responded in wrong language
+
+**Solutions**:
+1. **Improve prompt** - Add explicit language instruction:
+   ```
+   "IMPORTANT: Respond in Russian language only."
+   ```
+
+2. **Check target_language parameter**:
+   ```python
+   make_llm_request(
+       ...,
+       validation_level="v3",
+       target_language="ru"  # or "en"
+   )
+   ```
+
+3. **Disable language check** (if multilingual content expected):
+   ```python
+   validation_level="minimal"  # No language check
+   ```
+
+---
+
+### Diagnostic Workflow
+
+```
+Validation Failure
+      ↓
+1. Check ERROR file in output/{topic}/{stage}/llm_responses_raw/
+   → See actual response that failed
+      ↓
+2. Identify which validation level failed (log message)
+      ↓
+3. Is it a FALSE POSITIVE?
+   ├─ YES → Adjust threshold in src/llm_validation.py
+   └─ NO → Continue
+      ↓
+4. Review prompt and input data
+   → Check for duplicate content, unclear instructions
+      ↓
+5. Try different model
+   → Fallback will trigger automatically after 3 attempts
+      ↓
+6. Still failing?
+   → Use validation_level="minimal" for this stage
+   → Report issue with ERROR file contents
+```
+
+---
+
+### Adjusting Validation Thresholds
+
+**File**: `src/llm_validation.py`
+
+**All thresholds** (lines 150-210):
+```python
+# Compression ratio (higher = more repetitive)
+COMPRESSION_THRESHOLD = 4.0  # Default
+
+# Shannon entropy (lower = less information)
+ENTROPY_THRESHOLD = 2.5  # Default
+
+# Character bigrams (lower = more repetitive patterns)
+BIGRAMS_THRESHOLD = 15  # Default (percent)
+
+# Word density (valid range)
+MIN_WORD_DENSITY = 5   # Default (percent)
+MAX_WORD_DENSITY = 40  # Default (percent)
+```
+
+**How to adjust**:
+1. Edit `src/llm_validation.py`
+2. Change threshold values
+3. Test with failed case
+4. Document change in comments
+
+**When to adjust**:
+- ✅ False positives (good content rejected)
+- ✅ Language-specific characteristics
+- ❌ Don't lower just to pass spam content
+
+---
+
+### Disabling Validation (Not Recommended)
+
+**Per-stage**:
+```python
+# In stage-specific code:
+make_llm_request(
+    stage_name="my_stage",
+    messages=messages,
+    validation_level="none"  # ⚠️ No validation
+)
+```
+
+**Use cases**:
+- Debugging only
+- Experimental stages
+- Content known to be safe
+
+**Not recommended for production** - validation prevents spam/malformed content
+
+---
+
+### Getting Help
+
+If validation failures persist:
+
+1. **Collect ERROR files** from `output/{topic}/{stage}/llm_responses_raw/`
+2. **Note which validation level failed** (from logs)
+3. **Share prompt and configuration** used for stage
+4. **Try different model** first (fallback is automatic)
+5. **Consider threshold adjustment** if false positive
+
+**See also**:
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - General troubleshooting
+- [flow.md](flow.md) - Stage-specific details
+- [TECHNICAL.md](TECHNICAL.md) - Unified request system
+
+---
+
 **Status**: ✅ Production Ready v3.0 | **Maintenance**: Active

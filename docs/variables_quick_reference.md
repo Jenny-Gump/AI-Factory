@@ -59,6 +59,7 @@ target_language = variables_manager.active_variables.get("language") or "рус�
 
 - `fact_check_mode` (string) - включить/отключить факт-чекинг ("on"/"off")
 - `llm_model` (string) - override primary LLM model для этапов 8 и 12
+- `translation_mode` (string) - включить/отключить перевод ("on"/"off")
 
 **Поведение fact_check_mode:**
 - `on` - обычный пайплайн с факт-чекингом
@@ -70,6 +71,33 @@ target_language = variables_manager.active_variables.get("language") or "рус�
   - Этап 12 (editorial_review) - редакторская обработка
 - Fallback модели остаются **прежними** из конфига
 - Примеры: "openai/gpt-5", "deepseek-reasoner", "openai/gpt-4o"
+
+**Поведение translation_mode:**
+- `on` (default) - перевод контента на целевой язык из `--language`
+- `off` - пропуск перевода, контент остается на оригинальном языке (русский)
+
+### `--translation-mode`
+
+**Description**: Skip translation stage (use original language)
+
+**Values**:
+- `off` - Skip translation (use original Russian content)
+- Default: Translation enabled (translate to target language)
+
+**Example**:
+```bash
+python main.py "AI topic" --translation-mode off
+# Article generated in original Russian only
+```
+
+**When to use**:
+- Testing pipeline without translation
+- Content already in target language
+- Debugging translation stage issues
+
+**Related**: `--language` flag (sets target language when translation enabled)
+
+---
 
 ПРИМЕР ОДНОЙ КОМАНДЫ СО ВСЕМИ ПЕРЕМЕННЫМИ:
 ```bash
@@ -83,5 +111,6 @@ python3 main.py "prompt injection how to be protected guide" \
   --custom-requirements "Больше примеров кода и реальных случаев" \
   --article-length 7000 \
   --fact-check-mode off \
+  --translation-mode off \
   --llm-model "openai/gpt-5"
 ```

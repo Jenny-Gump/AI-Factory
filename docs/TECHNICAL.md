@@ -482,168 +482,283 @@ Primary model (3 попытки с v3.0 validation)
 
 ---
 
-### Unified LLM Request System (v2.3.2)
+## Unified LLM Request System v2.4.0
 
-**Архитектура**: Централизованная система для всех LLM запросов с автоматическим retry/fallback/validation
+### Architecture Overview
 
-**Компоненты**:
+The Unified LLM Request System (`src/llm_request.py`) is the central orchestrator for ALL LLM API calls in the pipeline. Introduced in v2.3.2 and optimized in v2.4.0, it provides:
 
-#### 1. src/llm_request.py - Главный обработчик запросов
+- **Single Entry Point**: All stages use `make_llm_request()`
+- **Automatic Retry**: 3 attempts per model with progressive backoff [2s, 5s, 10s]
+- **Automatic Fallback**: Primary → Fallback model on exhaustion
+- **Unified Validation**: v3.0 multi-level validation on every attempt
+- **Post-Processor Support**: Automatic retry on JSON parsing failures
+- **Provider Routing**: DeepSeek Direct, Google Direct, OpenRouter
+- **Token Tracking**: Integrated usage tracking across all stages
+- **Response Saving**: Debug artifacts for all attempts
 
-**Класс**: `LLMRequestHandler`
+### Core Components
 
-**Главная функция**: `make_llm_request(stage_name, messages, **kwargs)`
+#### 1. LLMRequestHandler Class
 
-**Возможности**:
-- Автоматический retry: 3 попытки на каждую модель
-- Автоматический fallback: primary model → fallback model
-- Унифицированная валидация: v3, minimal, none, custom
-- Интеграция с TokenTracker
-- Автоматическое сохранение responses для debugging
+**Location**: `src/llm_request.py:44-493`
 
-**Пример использования**:
+**Key Methods**:
 ```python
-from src.llm_request import make_llm_request
+class LLMRequestHandler:
+    def __init__(self):
+        self.provider_router = get_provider_router()
+        self.validator = LLMResponseValidator()
 
-response, model = make_llm_request(
-    stage_name="generate_article",
-    messages=[{"role": "user", "content": "..."}],
-    temperature=0.3,
-    validation_level="v3",
-    token_tracker=tracker,
-    base_path="output/topic/08_generation"
-)
+    def make_request(
+        self,
+        stage_name: str,
+        messages: List[Dict[str, str]],
+        validation_level: str = "minimal",
+        post_processor: Optional[Callable] = None,
+        **kwargs
+    ) -> Tuple[Any, str]:
+        # Orchestrates: retry → fallback → validation → post-processing
+        # Returns: (processed_result, actual_model_used)
 ```
 
-#### 2. src/llm_providers.py - Роутинг между провайдерами
+**Dependencies**:
+- `LLMProviderRouter` - Routes to appropriate API (DeepSeek, Google, OpenRouter)
+- `LLMResponseValidator` - v3.0 validation system
+- `TokenTracker` - Usage tracking (optional)
 
-**Класс**: `LLMProviderRouter`
+#### 2. Retry/Fallback Flow
 
-**Поддерживаемые провайдеры**:
-- **OpenRouter**: DeepSeek FREE, Google Gemini FREE
-- **DeepSeek Direct**: deepseek-reasoner, deepseek-chat (для reasoning tasks)
-- **Google Direct**: Gemini с native web search (для fact-check)
+**Total Attempts**: 6 (3 primary + 3 fallback)
 
-**Особенности**:
-- Автоматический выбор провайдера по имени модели
-- Client caching для performance
-- Unified response format (OpenAI-compatible)
-- Provider-specific features (web search для Google)
+**Flow Diagram**:
+```
+make_llm_request(stage_name, messages, ...)
+  │
+  ├─> Try Primary Model (from LLM_MODELS[stage_name])
+  │   ├─> Attempt 1 → API call → Validate → Post-process
+  │   │   ├─ Success → Return result
+  │   │   └─ Fail → Wait 2s
+  │   ├─> Attempt 2 → API call → Validate → Post-process
+  │   │   ├─ Success → Return result
+  │   │   └─ Fail → Wait 5s
+  │   └─> Attempt 3 → API call → Validate → Post-process
+  │       ├─ Success → Return result
+  │       └─ Fail → FALLBACK
+  │
+  └─> Try Fallback Model (from FALLBACK_MODELS[stage_name])
+      ├─> Attempt 1 → API call → Validate → Post-process
+      │   ├─ Success → Return result
+      │   └─ Fail → Wait 2s
+      ├─> Attempt 2 → API call → Validate → Post-process
+      │   ├─ Success → Return result
+      │   └─ Fail → Wait 5s
+      └─> Attempt 3 → API call → Validate → Post-process
+          ├─ Success → Return result
+          └─ Fail → Raise Exception
+```
 
-#### 3. src/llm_validation.py - Система валидации
+**Progressive Backoff**: [2s, 5s, 10s] between retries
 
-**Класс**: `LLMResponseValidator`
+#### 3. Validation Integration
+
+Every API response is validated BEFORE considering success:
+
+```python
+# After API call succeeds:
+is_valid = self.validator.validate(
+    response_text=response_text,
+    validation_level=validation_level,  # "v3", "minimal", "none", or custom
+    custom_validator=custom_validator,
+    **validation_kwargs
+)
+
+if not is_valid:
+    # Triggers retry (same as API error)
+    raise ValueError("Response validation failed")
+```
 
 **Validation Levels**:
+- `"v3"` - Full 6-level scientific validation (default for generate_article)
+- `"minimal"` - Length check only (default for most stages)
+- `"none"` - No validation
+- Custom validator function
 
-1. **v3.0** - 6-level scientific validation:
-   - Compression ratio (gzip) - >4.0 threshold
-   - Shannon entropy - <2.5 bits threshold
-   - Character bigrams - <2% unique threshold
-   - Word density - valid range 5-40%
-   - Finish reason - только STOP/END_TURN
-   - Language check - cyrillic/latin verification
+See [CONTENT_VALIDATION.md](CONTENT_VALIDATION.md) for validation details.
 
-2. **minimal** - Basic length check (100+ characters)
+#### 4. Post-Processor Pattern
 
-3. **none** - Skip validation (для testing)
+**Purpose**: Automatic retry on JSON parsing or downstream validation failures
 
-4. **custom** - User-provided validator function
-
-**Кастомные валидаторы**:
+**Usage**:
 ```python
-def translation_validator(text, original_length, **kwargs):
-    """Validates translation length ratio (80-125%)"""
-    # v3.0 validation first
-    success, reason = LLMResponseValidator._validate_v3(...)
-    if not success:
-        return False
+def my_post_processor(response_text: str, model_name: str) -> Any:
+    """
+    Parse/validate response. Return result or None to trigger retry.
 
-    # Length ratio check
-    ratio = len(text) / original_length
-    return 0.8 <= ratio <= 1.25
+    Returns:
+        Processed result (dict, list, etc.) on success
+        None on failure (triggers retry/fallback)
+
+    Raises:
+        Exception on failure (also triggers retry/fallback)
+    """
+    try:
+        parsed = json.loads(response_text)
+        # Additional validation here
+        return parsed
+    except Exception as e:
+        logger.error(f"Post-processing failed: {e}")
+        return None  # Triggers retry
+
+# Use in request:
+result, model = make_llm_request(
+    stage_name="extract_sections",
+    messages=messages,
+    post_processor=my_post_processor
+)
+# result is already parsed/validated
 ```
 
-#### Retry & Fallback Flow
+**Stages Using Post-Processors** (3/12):
+1. **extract_sections** (stage 6) - JSON array parsing
+2. **create_structure** (stage 7) - JSON object parsing
+3. **editorial_review** (stage 12) - Complex JSON with repairs
 
+**Why Only 3 Stages?**
+- Other stages return plain text (no parsing needed)
+- Translation/fact-check return validated text directly
+- Post-processors add complexity, only used when necessary
+
+#### 5. Provider Routing
+
+**File**: `src/llm_providers.py`
+
+**Supported Providers**:
+1. **DeepSeek Direct** - deepseek-reasoner, deepseek-chat
+2. **Google Direct** - gemini-2.5-flash (with native web search)
+3. **OpenRouter** - All other models (free DeepSeek, Google, etc.)
+
+**Provider Selection Logic**:
+```python
+# Automatic based on model name:
+"deepseek-reasoner" → DeepSeek Direct API
+"gemini-2.5-flash" → Google Direct API (with grounding)
+"google/gemini-*" → OpenRouter
+"deepseek-chat" → OpenRouter (free)
 ```
-Primary Model (3 attempts with validation)
-  attempt 1 (delay 0s)
-     ↓ fail
-  attempt 2 (delay 2s)
-     ↓ fail
-  attempt 3 (delay 5s)
-     ↓ fail
-  ↓
-Fallback Model (3 attempts with validation)
-  attempt 1 (delay 0s)
-     ↓ fail
-  attempt 2 (delay 2s)
-     ↓ fail
-  attempt 3 (delay 5s)
-     ↓ fail
-  ↓
-Exception raised: "All models failed for stage"
+
+**Benefits**:
+- DeepSeek Direct: Lower latency, native JSON mode
+- Google Direct: Native web search for fact-checking
+- OpenRouter: Access to free models
+
+#### 6. Token Tracking
+
+**Integration**:
+```python
+# Automatic tracking when token_tracker provided:
+make_llm_request(
+    stage_name="generate_article",
+    messages=messages,
+    token_tracker=self.token_tracker  # TokenTracker instance
+)
+
+# Tracks:
+# - Input tokens
+# - Output tokens
+# - Model used
+# - Provider
+# - Attempt number
+# - Stage name
 ```
 
-**Delays**: Progressive backoff `[2s, 5s, 10s]` для каждой модели
+**Report Generated**: `output/{topic}/token_usage_report.json`
 
-#### Мигрированные этапы
+#### 7. Response Saving
 
-**Все 7 LLM-зависимых этапов используют unified систему**:
+**All responses saved** for debugging:
 
-| Этап | Location | Fallback | Validation |
-|------|----------|----------|------------|
-| extract_sections | llm_processing.py:836 | ✅ Gemini | minimal |
-| create_structure | main.py:291 | ✅ Gemini | minimal |
-| generate_article | llm_processing.py:1075 | ✅ Gemini | v3.0 |
-| fact_check | llm_processing.py:1622 | ✅ Gemini | minimal |
-| link_placement | llm_processing.py:2144 | ✅ Gemini | minimal |
-| translation | llm_processing.py:2284 | ✅ Gemini | v3 + custom validator (80-125%) |
-| editorial_review | llm_processing.py:1822 | ✅ DeepSeek | minimal |
+**Successful responses**:
+```
+output/{topic}/{stage}/llm_responses_raw/
+  └─ {stage}_response_attempt{N}_{timestamp}.txt
+```
 
-#### Post-Processor Coverage (v2.4.0)
+**Failed responses**:
+```
+output/{topic}/{stage}/llm_responses_raw/
+  └─ ERROR_{stage}_response_attempt{N}_{timestamp}.txt
+```
 
-**Post-processor pattern** применяется для downstream обработки (JSON parsing, normalization) с автоматическим retry/fallback при ошибках.
+**Contents**:
+- Timestamp
+- Model name
+- Attempt number
+- Validation status
+- Full response text
 
-**Этапы С post-processors (3/7)**:
+### Configuration
 
-| Этап | Post-Processor | Назначение |
-|------|----------------|------------|
-| extract_sections | `_extract_post_processor` | JSON array parsing |
-| create_structure | `_create_structure_post_processor` | JSON object parsing + format normalization |
-| editorial_review | `_editorial_post_processor` | JSON object parsing с 5-уровневой нормализацией |
+**File**: `src/config.py`
 
-**Этапы БЕЗ post-processors (4/7)** - возвращают HTML string напрямую:
+```python
+# Primary models (first choice)
+LLM_MODELS = {
+    "extract_sections": "deepseek-chat",
+    "create_structure": "deepseek-reasoner",
+    "generate_article": "deepseek-reasoner",
+    "translation": "deepseek-reasoner",
+    "fact_check": "gemini-2.5-flash-preview-09-2025",
+    "editorial_review": "deepseek-reasoner"
+}
 
-| Этап | Return Type | Причина |
-|------|-------------|---------|
-| generate_article | HTML string | Контент напрямую, не требует JSON parsing |
-| translation | HTML string | Переведенный контент + custom validator для длины |
-| fact_check | HTML string | Исправленный HTML, не требует дополнительной обработки |
-| link_placement | HTML string | HTML с вставленными ссылками |
+# Fallback models (second choice)
+FALLBACK_MODELS = {
+    "extract_sections": "google/gemini-2.5-flash-lite-preview-06-17",
+    "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",
+    "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",
+    "translation": "google/gemini-2.5-flash-lite-preview-06-17",
+    "fact_check": "gemini-2.5-flash",
+    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17"
+}
 
-**Ключевой принцип**: Post-processors нужны только там, где:
-1. LLM возвращает JSON (не HTML)
-2. Требуется downstream парсинг/нормализация ПОСЛЕ успешного ответа API
-3. Есть риск ошибок парсинга, требующих retry/fallback
+# Retry configuration
+RETRY_CONFIG = {
+    "max_attempts": 3,      # Per model
+    "delays": [2, 5, 10]    # Progressive backoff (seconds)
+}
+```
 
-**Важно**: Все 7 этапов используют `make_llm_request()` для унифицированного retry/fallback, но только 3 из них требуют дополнительной JSON post-processing защиты.
+### Benefits
 
-#### Преимущества
+1. **Single Source of Truth** - All retry/fallback logic in one place
+2. **Consistent Behavior** - All stages use same retry/fallback flow
+3. **Easy to Update** - Change retry logic once, applies everywhere
+4. **Better Debugging** - Centralized logging and response saving
+5. **Reduced Code** - No duplicate retry logic across stages
+6. **Extensible** - Easy to add new validation levels or post-processors
 
-- ✅ **Reliability**: Автоматический fallback на ВСЕХ этапах (ранее только на 5)
-- ✅ **Maintainability**: 3 модуля вместо дублированного кода
-- ✅ **Consistency**: Единая retry/fallback/validation логика
-- ✅ **Debugging**: Автоматическое сохранение в `llm_responses_raw/`
-- ✅ **Extensibility**: Легко добавить новый provider или validation level
-- ✅ **Code reduction**: Удалено 206+ строк дублированного кода
-- ✅ **SOLID principles**: следование Single Responsibility, Open/Closed, Liskov Substitution
+### Migration from Old System
 
-#### Удаленный старый код
+**Before v2.3.2**:
+- Each stage had its own retry logic
+- Inconsistent retry counts (some 3, some 5)
+- Different validation approaches
+- Manual fallback handling
 
-- `_make_llm_request_with_retry()` - DELETED
-- `_make_llm_request_with_retry_sync()` - DELETED
+**After v2.4.0**:
+- All stages use `make_llm_request()`
+- Consistent 6 attempts (3 primary + 3 fallback)
+- Unified v3.0 validation
+- Automatic fallback on exhaustion
+
+### Related Documentation
+
+- [CONTENT_VALIDATION.md](CONTENT_VALIDATION.md) - v3.0 validation system details
+- [BATCH_SYSTEM.md](BATCH_SYSTEM.md) - Batch processing integration
+- [flow.md](flow.md) - Complete pipeline with unified system integration
+- [config.md](config.md) - Model configuration and retry settings
 
 ---
 

@@ -1,5 +1,7 @@
 # LLM Response Formats Documentation
 
+**Version**: 2.4.0 | **Date**: October 10, 2025
+
 ## Проблема решенная этим документом
 
 **НИКОГДА БОЛЬШЕ НЕ ЧИНИТЬ ОДНО И ТО ЖЕ 10 РАЗ**
@@ -147,9 +149,184 @@ content = "".join(content_parts)  # ВСЕ текстовые части
 ```
 **Обработка**: Извлекать `link_plan` массив.
 
+## JSON Parsing Strategy (v2.4.0 Post-Processor Pattern)
+
+### Modern Approach: Post-Processors
+
+As of v2.4.0, JSON parsing is handled through the **Post-Processor Pattern** integrated into the Unified LLM Request System.
+
+**Key Stages Using Post-Processors** (3/12):
+1. `extract_sections` (stage 6) - Parses JSON array of section structures
+2. `create_structure` (stage 7) - Parses ultimate structure JSON object
+3. `editorial_review` (stage 12) - Parses WordPress metadata with repairs
+
+**Why Post-Processors?**
+- Automatic retry on JSON parsing failures
+- Integrated with retry/fallback system
+- Single place to handle parsing logic
+- Consistent error handling
+
+### Post-Processor Implementation
+
+```python
+def _extract_post_processor(response_text: str, model_name: str) -> List[Dict]:
+    """
+    Post-processor for extract_sections stage.
+
+    Returns:
+        Parsed list of dicts on success
+        None on failure (triggers retry)
+    """
+    try:
+        # Clean response (remove markdown, etc.)
+        cleaned = clean_llm_tokens(response_text)
+
+        # Parse JSON
+        parsed = json.loads(cleaned)
+
+        # Validate structure
+        if not isinstance(parsed, list):
+            logger.error("Expected list, got {type(parsed)}")
+            return None  # Trigger retry
+
+        return parsed
+
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parsing failed: {e}")
+        return None  # Trigger retry
+
+# Usage in stage:
+result, model = make_llm_request(
+    stage_name="extract_sections",
+    messages=messages,
+    post_processor=_extract_post_processor  # ← Automatic retry on failure
+)
+# result is already parsed List[Dict]
+```
+
+### Retry Flow with Post-Processors
+
+```
+Attempt 1: API call → Response → Validation → Post-processor
+                                                    ↓
+                                              JSON parse fails
+                                                    ↓
+                                            Return None/raise
+                                                    ↓
+                                      RETRY (wait 2s)
+                                                    ↓
+Attempt 2: API call → Response → Validation → Post-processor
+                                                    ↓
+                                         JSON parse succeeds
+                                                    ↓
+                                         Return parsed result
+```
+
+**Benefits**:
+- Parsing failures treated like any other error
+- Automatic retry/fallback on JSON issues
+- Consistent with rest of pipeline
+- No special error handling needed
+
+### Stages NOT Using Post-Processors
+
+**Why not all stages?**
+
+- **translation** (stage 9) - Returns plain text, no parsing needed
+- **fact_check** (stage 10) - Returns HTML text, no parsing needed
+- **generate_article** (stage 8) - Returns markdown, no parsing needed
+
+Post-processors add complexity and should only be used when parsing/validation is necessary.
+
+### Legacy Parsing (Deprecated)
+
+**Old approach** (pre-v2.4.0):
+```python
+# ❌ DEPRECATED - Do not use
+parsed = _parse_json_from_response(response)
+if not parsed:
+    # Manual retry logic...
+```
+
+**New approach** (v2.4.0+):
+```python
+# ✅ CURRENT - Use post-processor
+result, model = make_llm_request(
+    stage_name="my_stage",
+    messages=messages,
+    post_processor=my_post_processor  # Automatic retry
+)
+```
+
+---
+
 ## Полная архитектура парсинга в _parse_json_from_response
 
-### 5 ATTEMPTS SYSTEM
+### 6 ATTEMPTS UNIFIED SYSTEM (v2.4.0)
+
+**Total Attempts**: 6 (3 Primary + 3 Fallback)
+
+All stages now use the Unified LLM Request System with consistent retry/fallback logic:
+
+**Primary Model**: 3 attempts with progressive backoff
+- Attempt 1 → Fail → Wait 2s
+- Attempt 2 → Fail → Wait 5s
+- Attempt 3 → Fail → **FALLBACK**
+
+**Fallback Model**: 3 attempts with progressive backoff
+- Attempt 1 → Fail → Wait 2s
+- Attempt 2 → Fail → Wait 5s
+- Attempt 3 → Fail → **EXCEPTION**
+
+**Validation**: Every attempt validated before considering success
+
+### Example Log Output
+
+```
+🎯 [generate_article] Models to try: ['deepseek-reasoner', 'google/gemini-2.5-flash-lite']
+🤖 [generate_article] Trying primary model: deepseek-reasoner
+📝 [generate_article] Attempt 1/3 with deepseek-reasoner
+✅ [generate_article] Success with deepseek-reasoner on attempt 1
+```
+
+**If primary fails**:
+```
+❌ [generate_article] Attempt 3 failed: Validation failed
+🤖 [generate_article] Trying fallback model: google/gemini-2.5-flash-lite
+📝 [generate_article] Attempt 1/3 with google/gemini-2.5-flash-lite
+✅ [generate_article] Success with google/gemini-2.5-flash-lite on attempt 1
+```
+
+### Configuration
+
+**File**: `src/config.py`
+
+```python
+LLM_MODELS = {
+    "extract_sections": "deepseek-chat",           # Primary
+    "create_structure": "deepseek-reasoner",       # Primary
+    "generate_article": "deepseek-reasoner",       # Primary
+    ...
+}
+
+FALLBACK_MODELS = {
+    "extract_sections": "google/gemini-2.5-flash-lite-preview-06-17",  # Fallback
+    "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",  # Fallback
+    "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",  # Fallback
+    ...
+}
+
+RETRY_CONFIG = {
+    "max_attempts": 3,      # Per model
+    "delays": [2, 5, 10]    # Progressive backoff (seconds)
+}
+```
+
+**See**: [TECHNICAL.md](TECHNICAL.md) - Unified Request System details
+
+---
+
+### 5-Level JSON Parsing Fallback System
 
 Функция `_parse_json_from_response()` использует 5-этапную систему парсинга с fallback логикой:
 
@@ -304,8 +481,128 @@ if not current_model.startswith("perplexity/"):
 - LLM оборачивают JSON в ```json ... ```
 - Требуется извлечение из markdown блоков
 
+---
+
+## Post-Processor Examples
+
+### Example 1: Extract Sections (JSON Array)
+
+**Expected Format**:
+```json
+[
+  {
+    "section_title": "Introduction",
+    "section_description": "Overview of the topic",
+    "key_points": ["point1", "point2"]
+  },
+  ...
+]
+```
+
+**Post-Processor**:
+```python
+def _extract_post_processor(response_text: str, model_name: str) -> List[Dict]:
+    cleaned = clean_llm_tokens(response_text)
+
+    try:
+        parsed = json.loads(cleaned)
+
+        # Validate structure
+        if not isinstance(parsed, list):
+            return None
+
+        # Validate each section
+        for section in parsed:
+            if not isinstance(section, dict):
+                return None
+            if "section_title" not in section:
+                return None
+
+        return parsed
+
+    except json.JSONDecodeError:
+        return None
+```
+
+### Example 2: Editorial Review (Complex JSON with Repairs)
+
+**Expected Format**:
+```json
+{
+  "title": "Article Title",
+  "content": "<p>HTML content</p>",
+  "excerpt": "Summary",
+  "slug": "article-slug",
+  "_yoast_wpseo_title": "SEO title",
+  ...
+}
+```
+
+**Post-Processor with Repairs**:
+```python
+def _editorial_post_processor(response_text: str, model_name: str) -> Dict:
+    # Try multiple JSON extraction strategies
+    for attempt, strategy in enumerate(JSON_EXTRACTION_STRATEGIES):
+        try:
+            parsed = strategy(response_text)
+
+            # Validate required fields
+            required = ["title", "content", "excerpt"]
+            if all(k in parsed for k in required):
+                return parsed
+
+        except Exception as e:
+            logger.debug(f"Strategy {attempt} failed: {e}")
+            continue
+
+    # All strategies failed
+    return None
+```
+
+### Example 3: Create Structure (Ultimate Structure)
+
+**Expected Format**:
+```json
+{
+  "title": "Article Title",
+  "sections": [
+    {
+      "section_title": "Section 1",
+      "subsections": [...]
+    }
+  ]
+}
+```
+
+**Post-Processor**:
+```python
+def _structure_post_processor(response_text: str, model_name: str) -> Dict:
+    cleaned = clean_llm_tokens(response_text)
+
+    try:
+        parsed = json.loads(cleaned)
+
+        # Validate structure
+        if not isinstance(parsed, dict):
+            return None
+
+        if "sections" not in parsed:
+            return None
+
+        if not isinstance(parsed["sections"], list):
+            return None
+
+        return parsed
+
+    except json.JSONDecodeError:
+        return None
+```
+
+---
+
 ## История изменений
 
+- **2025-10-10**: v2.4.0 - Post-processor pattern, 6 attempts unified system
 - **2025-09-24**: Создан документ после исправления проблемы с двойным оборачиванием ultimate_structure
 - Исправлена логика в `_parse_json_from_response` для корректного определения форматов
 - **2025-09-25**:
