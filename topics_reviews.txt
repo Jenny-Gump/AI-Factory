@@ -1,9 +1,3 @@
-# Topics for Reviews Content Type
-# Format: One topic per line
-# Lines starting with # are comments and will be ignored
-
-# Example topics:
-# DeepSeek API comprehensive review
-# ChatGPT Plus vs Claude Pro comparison review
-# Notion AI features review
+10 alternatives on local machine for chatgpt
+Best llm for sound generation full list of models with description
 
