@@ -116,6 +116,13 @@ python3 main.py "API автоматизация" --content-type basic_articles
 python3 main.py "Установка DeepSeek локально" --content-type guides
 ```
 
+### reviews
+Объективные обзоры продуктов и сервисов с практическим анализом.
+
+```bash
+python3 main.py "DeepSeek API review" --content-type reviews
+```
+
 ---
 
 ## 📝 Версия

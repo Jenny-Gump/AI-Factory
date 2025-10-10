@@ -154,5 +154,5 @@ def configure_logging(verbose: bool = False):
 
     return logging.getLogger(__name__)
 
-# Note: Default logger removed - use configure_logging() instead
-# All modules should use logging.getLogger(__name__) after configure_logging() is called
+# Export logger for backward compatibility
+logger = logging.getLogger(__name__)

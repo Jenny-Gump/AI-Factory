@@ -4,8 +4,12 @@ import os
 import json
 import re
 import argparse
-from src.logger_config import logger, configure_logging
+import logging
+from src.logger_config import configure_logging
 from src.firecrawl_client import FirecrawlClient
+
+# Initialize module logger (will be configured by configure_logging())
+logger = logging.getLogger(__name__)
 from src.processing import (
     filter_urls,
     validate_and_prepare_sources,
@@ -1027,9 +1031,6 @@ if __name__ == "__main__":
 
     # Configure logging FIRST before any other operations
     configure_logging(verbose=args.verbose)
-
-    # Re-import logger after configuration to get updated settings
-    from src.logger_config import logger
 
     # Validate content type
     try:

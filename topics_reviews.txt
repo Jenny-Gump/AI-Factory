@@ -1,0 +1,9 @@
+# Topics for Reviews Content Type
+# Format: One topic per line
+# Lines starting with # are comments and will be ignored
+
+# Example topics:
+# DeepSeek API comprehensive review
+# ChatGPT Plus vs Claude Pro comparison review
+# Notion AI features review
+

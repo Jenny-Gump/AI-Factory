@@ -102,7 +102,7 @@ python main.py "AI topic" --translation-mode off
 ПРИМЕР ОДНОЙ КОМАНДЫ СО ВСЕМИ ПЕРЕМЕННЫМИ:
 ```bash
 python3 main.py "prompt injection how to be protected guide" \
-  --content-type basic_articles \
+  --content-type basic_articles \  # или guides, или reviews
   --author-style "technical" \
   --theme-focus "cybersecurity" \
   --target-audience "разработчики" \

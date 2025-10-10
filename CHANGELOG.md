@@ -1,5 +1,95 @@
 # Content Factory Changelog
 
+## 🆕 Version 2.4.1 - October 10, 2025
+
+### **NEW CONTENT TYPE: Reviews**
+
+#### **📝 НОВЫЙ ТИП КОНТЕНТА**
+
+**Добавлен третий тип контента** - reviews (обзоры продуктов и сервисов):
+
+**Доступные типы:**
+- `basic_articles` - Информационные статьи с FAQ и источниками
+- `guides` - Пошаговые руководства и туториалы
+- `reviews` - Объективные обзоры продуктов и сервисов ⭐ NEW
+
+#### **🆕 FEATURES**
+
+**1. Reviews Content Type:**
+- Объективный стиль написания с практическим анализом
+- Нейтральный тон без рекламы
+- Фокус на реальном опыте использования
+- Анализ плюсов и минусов
+- Практические выводы
+
+**2. Reviews Configuration:**
+```python
+"reviews": {
+    "prompts_folder": "prompts/reviews",
+    "description": "Comprehensive product and service reviews",
+    "default_topics_file": "topics_reviews.txt",
+    "output_prefix": "review_",
+    "wordpress_category": "reviews"
+}
+```
+
+**3. Dedicated Prompts:**
+- `01_extract.txt` - Extraction for reviews
+- `01_generate_section.txt` - Section generation for reviews
+- `02_create_ultimate_structure.txt` - Structure creation for reviews
+- `02_editorial_review.txt` - Editorial review for reviews
+- `09_translation.txt` - Translation for reviews
+- `10_fact_check.txt` - Fact-checking for reviews
+- `11_link_placement.txt` - Link placement for reviews
+
+#### **🔧 TECHNICAL CHANGES**
+
+**Modified Files:**
+1. **batch_config.py** - Added reviews to CONTENT_TYPES
+2. **README.md** - Added reviews section
+3. **docs/GUIDE.md** - Added reviews examples
+4. **docs/config.md** - Added reviews configuration
+5. **docs/variables_quick_reference.md** - Updated with reviews
+
+**Created Files:**
+1. **topics_reviews.txt** - Topics file for batch processing
+2. **REVIEWS_USAGE.md** - Complete usage documentation
+3. **prompts/reviews/** - 7 prompt files (already existed)
+
+#### **📋 USAGE EXAMPLES**
+
+```bash
+# Single review
+python3 main.py "DeepSeek API review" --content-type reviews
+
+# With customization
+python3 main.py "ChatGPT Plus vs Claude Pro" \
+  --content-type reviews \
+  --target-audience "разработчики" \
+  --tone-of-voice "analytical"
+
+# Batch processing
+python3 batch_processor.py topics_reviews.txt --content-type reviews
+```
+
+#### **🎯 BENEFITS**
+
+- ✅ **Consistency**: Same architecture as basic_articles and guides
+- ✅ **Zero code changes**: Pure configuration + prompts approach
+- ✅ **Full feature support**: All 13 pipeline stages work
+- ✅ **Batch processing**: Full support via batch_processor.py
+- ✅ **WordPress integration**: Auto-publish to "reviews" category
+
+#### **📚 DOCUMENTATION**
+
+- **README.md**: Added reviews in "Типы контента" section
+- **docs/GUIDE.md**: Added reviews examples and features
+- **docs/config.md**: Added reviews configuration
+- **docs/variables_quick_reference.md**: Updated content-type examples
+- **REVIEWS_USAGE.md**: Complete standalone guide (NEW)
+
+---
+
 ## 🚀 Version 2.4.0 - October 9, 2025
 
 ### **UNIFIED RETRY/FALLBACK SYSTEM WITH POST-PROCESSOR PATTERN**

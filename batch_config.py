@@ -42,6 +42,13 @@ CONTENT_TYPES = {
         "default_topics_file": "topics_guides.txt",
         "output_prefix": "guide_",
         "wordpress_category": "guides"
+    },
+    "reviews": {
+        "prompts_folder": "prompts/reviews",
+        "description": "Comprehensive product and service reviews",
+        "default_topics_file": "topics_reviews.txt",
+        "output_prefix": "review_",
+        "wordpress_category": "reviews"
     }
 }
 
