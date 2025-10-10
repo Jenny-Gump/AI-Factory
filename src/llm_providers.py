@@ -329,6 +329,7 @@ class LLMProviderRouter:
         }
 
         # Add web search tools if requested
+        logger.info(f"🔧 _call_google_direct: enable_web_search={enable_web_search}, model={model_name}")
         if enable_web_search:
             request_data["tools"] = [
                 {
@@ -336,6 +337,8 @@ class LLMProviderRouter:
                 }
             ]
             logger.info(f"🔍 Enabled Google Search grounding for {model_name}")
+        else:
+            logger.warning(f"⚠️ Web search NOT enabled for {model_name}")
 
         # Make HTTP request
         response = requests.post(url, headers=headers, json=request_data, timeout=120)
@@ -390,6 +393,22 @@ class LLMProviderRouter:
         else:
             # No usage info available
             response_obj.usage = None
+
+        # Extract grounding metadata if available (web search results)
+        if "groundingMetadata" in candidate:
+            grounding_metadata = candidate["groundingMetadata"]
+            response_obj.grounding_metadata = grounding_metadata
+
+            # Log grounding information
+            web_queries = grounding_metadata.get("webSearchQueries", [])
+            grounding_chunks = grounding_metadata.get("groundingChunks", [])
+            logger.info(f"🔍 Web Search Queries: {len(web_queries)} query(ies)")
+            logger.info(f"📚 Grounding Chunks: {len(grounding_chunks)} source(s)")
+
+            if web_queries:
+                logger.debug(f"   Queries: {web_queries}")
+        else:
+            response_obj.grounding_metadata = None
 
         return response_obj, "google_direct"
 

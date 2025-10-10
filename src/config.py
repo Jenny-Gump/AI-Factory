@@ -53,9 +53,9 @@ LLM_MODELS = {
     "extract_sections": "deepseek-chat",                                # DeepSeek Chat for section extraction
     "create_structure": "deepseek-reasoner",                            # DeepSeek Reasoner for structure creation
     "generate_article": "deepseek-reasoner",                            # DeepSeek Reasoner for article generation
-    "fact_check": "gemini-2.5-flash-preview-09-2025",                   # Google Gemini 2.5 Flash (Sept 2025) with native web search for fact-checking
-    "link_placement": "gemini-2.5-flash-preview-09-2025",               # Google Gemini 2.5 Flash (Sept 2025) with native web search for finding relevant links
-    "translation": "deepseek-reasoner",                                 # DeepSeek Reasoner for translation
+    "fact_check": "gemini-2.5-flash",                                   # Google Gemini 2.5 Flash (stable) with native web search for fact-checking
+    "link_placement": "gemini-2.5-flash",                               # Google Gemini 2.5 Flash (stable) with native web search for finding relevant links
+    "translation": "google/gemini-2.5-flash-lite-preview-06-17",        # Google Gemini 2.5 Flash Lite for translation
     "editorial_review": "deepseek-reasoner",                            # DeepSeek Reasoner for editorial review
 }
 
@@ -64,9 +64,9 @@ FALLBACK_MODELS = {
     "extract_sections": "google/gemini-2.5-flash-lite-preview-06-17",    # Fallback to Gemini 2.5
     "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
     "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
-    "fact_check": "gemini-2.5-flash",                                   # Stable Gemini 2.5 Flash with web search
-    "link_placement": "gemini-2.5-flash",                               # Stable Gemini 2.5 Flash with web search
-    "translation": "google/gemini-2.5-flash-lite-preview-06-17",        # Fallback to Gemini 2.5
+    "fact_check": "gemini-2.5-pro",                                     # Gemini 2.5 Pro with enhanced grounding and larger context
+    "link_placement": "gemini-2.5-pro",                                 # Gemini 2.5 Pro with enhanced grounding and larger context
+    "translation": "deepseek-reasoner",                                 # Fallback to DeepSeek Reasoner
     "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
 }
 

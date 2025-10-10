@@ -1690,7 +1690,8 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                 token_tracker=token_tracker,
                 base_path=group_path,
                 temperature=0.2,  # Low temperature for factual accuracy
-                validation_level="minimal"  # Fact-check uses minimal validation (doc: short factual answers)
+                validation_level="minimal",  # Fact-check uses minimal validation (doc: short factual answers)
+                enable_web_search=True  # Enable Google Search grounding for Gemini models
             )
 
             fact_checked_content = response_obj.choices[0].message.content
@@ -1714,6 +1715,23 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                     request_id=f"group_{group_num}_fact_check",
                     extra_params={"model": actual_model}
                 )
+
+                # Save grounding metadata if available (web search results)
+                if hasattr(response_obj, 'grounding_metadata') and response_obj.grounding_metadata is not None:
+                    grounding_file = os.path.join(group_path, "grounding_metadata.json")
+                    grounding_data = {
+                        "group_num": group_num,
+                        "timestamp": datetime.now().isoformat(),
+                        "model": actual_model,
+                        "web_search_queries": response_obj.grounding_metadata.get("webSearchQueries", []),
+                        "grounding_chunks": response_obj.grounding_metadata.get("groundingChunks", []),
+                        "grounding_supports": response_obj.grounding_metadata.get("groundingSupports", [])
+                    }
+
+                    with open(grounding_file, 'w', encoding='utf-8') as f:
+                        json.dump(grounding_data, f, indent=2, ensure_ascii=False)
+
+                    logger.info(f"💾 Saved grounding metadata: {grounding_file}")
 
             fact_checked_content_parts.append(fact_checked_content)
             logger.info(f"✅ Group {group_num} fact-checked successfully")
@@ -2193,7 +2211,8 @@ def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = N
                 token_tracker=token_tracker,
                 base_path=group_path,
                 temperature=0.3,  # Slightly higher for creative link placement
-                validation_level="minimal"  # Link placement uses minimal validation (doc: HTML content causes false positives)
+                validation_level="minimal",  # Link placement uses minimal validation (doc: HTML content causes false positives)
+                enable_web_search=True  # Enable Google Search grounding for Gemini models
             )
 
             content_with_links = response_obj.choices[0].message.content
@@ -2212,6 +2231,23 @@ def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = N
                     request_id=f"group_{group_num}_link_placement",
                     extra_params={"model": actual_model}
                 )
+
+                # Save grounding metadata if available (web search results)
+                if hasattr(response_obj, 'grounding_metadata') and response_obj.grounding_metadata is not None:
+                    grounding_file = os.path.join(group_path, "grounding_metadata.json")
+                    grounding_data = {
+                        "group_num": group_num,
+                        "timestamp": datetime.now().isoformat(),
+                        "model": actual_model,
+                        "web_search_queries": response_obj.grounding_metadata.get("webSearchQueries", []),
+                        "grounding_chunks": response_obj.grounding_metadata.get("groundingChunks", []),
+                        "grounding_supports": response_obj.grounding_metadata.get("groundingSupports", [])
+                    }
+
+                    with open(grounding_file, 'w', encoding='utf-8') as f:
+                        json.dump(grounding_data, f, indent=2, ensure_ascii=False)
+
+                    logger.info(f"💾 Saved grounding metadata: {grounding_file}")
 
             content_with_links_parts.append(content_with_links)
             logger.info(f"✅ Group {group_num} link placement completed successfully")
