@@ -3,20 +3,18 @@
   "topics_file": "topics_basic_articles.txt",
   "total_topics": 3,
   "completed_topics": [
-    "Generate Knowledge (GK) prompting technique guide, template, best practices",
-    "Prompt Chaining prompting technique guide, template, best practices",
-    "Maieutic Prompting technique guide, template, best practices"
+    "Generate Knowledge (GK) prompting technique guide, template, best practices"
   ],
   "failed_topics": [],
   "current_topic": null,
-  "start_time": "2025-10-10T00:28:57.987887",
-  "last_update_time": "2025-10-10T02:16:18.770248",
+  "start_time": "2025-10-10T10:16:22.641960",
+  "last_update_time": "2025-10-10T11:35:38.165122",
   "topic_statuses": {
     "Generate Knowledge (GK) prompting technique guide, template, best practices": {
       "topic": "Generate Knowledge (GK) prompting technique guide, template, best practices",
       "status": "completed",
-      "start_time": "2025-10-10T00:28:57.988379",
-      "end_time": "2025-10-10T01:06:20.783094",
+      "start_time": "2025-10-10T10:16:22.642463",
+      "end_time": "2025-10-10T11:35:38.135199",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
@@ -24,20 +22,20 @@
     },
     "Prompt Chaining prompting technique guide, template, best practices": {
       "topic": "Prompt Chaining prompting technique guide, template, best practices",
-      "status": "completed",
-      "start_time": "2025-10-10T01:06:25.861347",
-      "end_time": "2025-10-10T01:43:09.359929",
-      "attempts": 1,
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "attempts": 0,
       "error_message": null,
       "wordpress_id": null,
       "wordpress_url": null
     },
     "Maieutic Prompting technique guide, template, best practices": {
       "topic": "Maieutic Prompting technique guide, template, best practices",
-      "status": "completed",
-      "start_time": "2025-10-10T01:43:14.416871",
-      "end_time": "2025-10-10T02:16:13.710567",
-      "attempts": 1,
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "attempts": 0,
       "error_message": null,
       "wordpress_id": null,
       "wordpress_url": null

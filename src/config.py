@@ -99,10 +99,8 @@ LLM_PROVIDERS = {
         "base_url": "https://generativelanguage.googleapis.com/v1beta",
         "api_key_env": "GEMINI_API_KEY",
         "models": [
-            "gemini-2.5-flash-preview-09-2025",
             "gemini-2.5-flash",
-            "gemini-2.5-pro",
-            "gemini-2.0-flash"
+            "gemini-2.5-pro"
         ],
         "supports_web_search": True
     },
@@ -111,18 +109,7 @@ LLM_PROVIDERS = {
         "api_key_env": "OPENROUTER_API_KEY",
         "models": [
             "openai/gpt-5",
-            "openai/gpt-4o",
-            "openai/gpt-4o-mini",
-            "openai/gpt-4-turbo",
-            "openai/gpt-3.5-turbo",
-            "google/gemini-2.0-flash-001",
-            "google/gemini-2.5-flash-lite-preview-06-17",
-            "google/gemini-2.0-flash-exp:free",
-            "deepseek/deepseek-chat-v3.1:free",
-            "perplexity/sonar-reasoning-pro",
-            "perplexity/sonar-reasoning-pro:online",
-            "x-ai/grok-4-fast:free",
-            "z-ai/glm-4.5-air:free"
+            "google/gemini-2.5-flash-lite-preview-06-17"
         ],
         "extra_headers": {
             "HTTP-Referer": "https://github.com/your-repo/content-generator",

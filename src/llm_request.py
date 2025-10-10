@@ -246,6 +246,7 @@ class LLMRequestHandler:
                                 token_tracker.add_usage(
                                     stage=stage_name,
                                     usage=response_obj.usage,
+                                    model_name=current_model,
                                     extra_metadata={
                                         "model": current_model,
                                         "provider": provider,
@@ -292,6 +293,7 @@ class LLMRequestHandler:
                             token_tracker.add_usage(
                                 stage=stage_name,
                                 usage=response_obj.usage,
+                                model_name=current_model,
                                 extra_metadata={
                                     "model": current_model,
                                     "provider": provider,

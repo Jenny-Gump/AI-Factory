@@ -1,0 +1,77 @@
+{
+  "pricing_version": "1.0.0",
+  "last_updated": "2025-10-10T00:00:00Z",
+  "currency": "USD",
+  "pricing_per_1m_tokens": true,
+  "sources": {
+    "deepseek": "https://api-docs.deepseek.com/news/news250120",
+    "google_gemini": "https://ai.google.dev/pricing",
+    "openrouter": "https://openrouter.ai/models"
+  },
+  "models": {
+    "deepseek-reasoner": {
+      "provider": "deepseek",
+      "input_cost_cache_hit": 0.14,
+      "input_cost_cache_miss": 0.55,
+      "output_cost": 2.19,
+      "supports_cache": true,
+      "supports_reasoning": true,
+      "notes": "DeepSeek R1 - reasoning tokens billed as output tokens. Prompt caching available.",
+      "pricing_model": "cache_tiered"
+    },
+    "deepseek-chat": {
+      "provider": "deepseek",
+      "input_cost_cache_hit": 0.028,
+      "input_cost_cache_miss": 0.28,
+      "output_cost": 0.42,
+      "supports_cache": true,
+      "supports_reasoning": false,
+      "notes": "DeepSeek Chat V3.1 with prompt caching support.",
+      "pricing_model": "cache_tiered"
+    },
+    "gemini-2.5-flash": {
+      "provider": "google_direct",
+      "input_cost": 0.30,
+      "output_cost": 2.50,
+      "supports_cache": false,
+      "supports_grounding": true,
+      "notes": "Google Gemini 2.5 Flash - stable release with native web search grounding.",
+      "pricing_model": "flat_rate"
+    },
+    "gemini-2.5-pro": {
+      "provider": "google_direct",
+      "input_cost_short": 1.25,
+      "output_cost_short": 10.00,
+      "input_cost_long": 2.50,
+      "output_cost_long": 15.00,
+      "prompt_length_threshold": 200000,
+      "supports_cache": false,
+      "supports_grounding": true,
+      "notes": "Google Gemini 2.5 Pro with length-based pricing. Short: ≤200K tokens, Long: >200K tokens.",
+      "pricing_model": "length_tiered"
+    },
+    "google/gemini-2.5-flash-lite-preview-06-17": {
+      "provider": "openrouter",
+      "input_cost": 0.10,
+      "output_cost": 0.40,
+      "supports_cache": false,
+      "supports_grounding": false,
+      "notes": "Google Gemini 2.5 Flash Lite preview via OpenRouter - lowest cost option for simple tasks.",
+      "pricing_model": "flat_rate"
+    },
+    "openai/gpt-5": {
+      "provider": "openrouter",
+      "input_cost": 1.25,
+      "output_cost": 10.00,
+      "supports_cache": false,
+      "supports_grounding": false,
+      "notes": "OpenAI GPT-5 via OpenRouter - available for manual model override.",
+      "pricing_model": "flat_rate"
+    }
+  },
+  "pricing_models_explained": {
+    "flat_rate": "Simple input/output pricing - multiply tokens by input_cost/output_cost",
+    "cache_tiered": "DeepSeek models - use cache_hit/cache_miss costs based on cached_tokens from API response",
+    "length_tiered": "Gemini Pro - use short/long costs based on prompt_length_threshold (200K tokens)"
+  }
+}

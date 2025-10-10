@@ -24,6 +24,7 @@ from batch_config import (
     get_content_type_config, get_progress_file_path, get_lock_file_path,
     validate_content_type, ensure_prompts_folder_exists
 )
+from src.batch_cost_aggregator import BatchCostAggregator
 
 
 @dataclass
@@ -112,8 +113,13 @@ class BatchProcessor:
         
         # Убедимся что папка с промптами существует
         ensure_prompts_folder_exists(content_type)
-        
+
+        # Initialize batch cost aggregator
+        batch_id = f"{content_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self.cost_aggregator = BatchCostAggregator(batch_id=batch_id)
+
         logger.info(f"BatchProcessor initialized for content type: {content_type}")
+        logger.info(f"Batch cost aggregator initialized with ID: {batch_id}")
     
     def _signal_handler(self, signum, frame):
         """Обработчик сигналов для graceful shutdown"""
@@ -236,7 +242,22 @@ class BatchProcessor:
             # 2. Успешное завершение - прямолинейная логика без проверок
             topic_status.status = 'completed'
             topic_status.end_time = datetime.now().isoformat()
-            
+
+            # 3. Add topic cost report to batch aggregator
+            try:
+                # Construct path to token usage report
+                from src.utils import sanitize_filename
+                topic_sanitized = sanitize_filename(topic)
+                token_report_path = os.path.join("output", topic_sanitized, "token_usage_report.json")
+
+                if os.path.exists(token_report_path):
+                    self.cost_aggregator.add_topic_report(topic, token_report_path)
+                    logger.info(f"✅ Added topic cost report to batch aggregator: {topic}")
+                else:
+                    logger.warning(f"⚠️ Token report not found for topic '{topic}': {token_report_path}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to add topic cost report: {e}")
+
             logger.info(f"🎉 Topic completed successfully: '{topic}'")
             return True
             
@@ -484,10 +505,15 @@ class BatchProcessor:
         start_time = datetime.fromisoformat(self.progress.start_time)
         total_duration = datetime.now() - start_time
         logger.info(f"⏱️  Total duration: {total_duration}")
-        
+
         if completed > 0:
             avg_time_per_topic = total_duration / completed
             logger.info(f"📈 Average time per topic: {avg_time_per_topic}")
+
+        # Print batch cost summary
+        if self.cost_aggregator and self.cost_aggregator.topics:
+            logger.info("")
+            self.cost_aggregator.print_batch_summary()
     
     def _is_locked(self) -> bool:
         """Проверяет есть ли блокировка процесса"""
@@ -516,19 +542,30 @@ class BatchProcessor:
     def _cleanup(self):
         """Финальная очистка ресурсов"""
         logger.info("🧹 Cleaning up batch processor...")
-        
+
         self.is_running = False
-        
+
         # Сохраняем финальный прогресс
         if self.progress:
             self._save_progress()
-        
+
+        # Save batch cost report
+        if self.cost_aggregator and self.cost_aggregator.topics:
+            try:
+                report_path = self.cost_aggregator.save_batch_report(
+                    output_path="output",
+                    filename=f"batch_cost_report_{self.content_type}.json"
+                )
+                logger.info(f"💾 Batch cost report saved: {report_path}")
+            except Exception as e:
+                logger.error(f"Failed to save batch cost report: {e}")
+
         # Удаляем блокировку
         self._remove_lock()
-        
+
         # Финальная очистка памяти
         self._cleanup_memory_between_topics()
-        
+
         logger.info("Batch processor cleanup completed")
 
 
