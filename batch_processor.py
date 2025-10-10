@@ -10,13 +10,15 @@ import sys
 import time
 import gc
 import signal
+import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, asdict
 import psutil
 import requests
 
-from src.logger_config import logger
+# Lazy logger initialization - will use config from configure_logging()
+logger = logging.getLogger(__name__)
 from batch_config import (
     BATCH_CONFIG, CONTENT_TYPES, BATCH_PATHS, MEMORY_CLEANUP,
     get_content_type_config, get_progress_file_path, get_lock_file_path,

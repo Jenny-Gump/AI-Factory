@@ -4,13 +4,16 @@ import re
 import time
 import asyncio
 import requests
+import logging
 from datetime import datetime
 from typing import List, Dict, Any, Union
 from dotenv import load_dotenv
 import openai
 
-from src.logger_config import logger
 from src.token_tracker import TokenTracker
+
+# Lazy logger initialization - will use config from configure_logging()
+logger = logging.getLogger(__name__)
 from src.config import LLM_MODELS, DEFAULT_MODEL, LLM_PROVIDERS, get_provider_for_model, FALLBACK_MODELS, RETRY_CONFIG, SECTION_TIMEOUT, MODEL_TIMEOUT, SECTION_MAX_RETRIES
 from src.llm_request import make_llm_request
 

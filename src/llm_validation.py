@@ -17,12 +17,12 @@ Follows SOLID principles:
 import gzip
 import math
 import re
+import logging
 from typing import Tuple, Callable, Optional
 from collections import Counter
 
-from src.logger_config import setup_logger
-
-logger = setup_logger(__name__)
+# Lazy logger initialization - will use config from configure_logging()
+logger = logging.getLogger(__name__)
 
 
 class LLMResponseValidator:

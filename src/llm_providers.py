@@ -15,14 +15,15 @@ Follows SOLID principles:
 """
 import os
 import requests
+import logging
 from typing import Dict, List, Optional, Tuple, Any
 from types import SimpleNamespace
 from openai import OpenAI
 
 from src.config import LLM_PROVIDERS, get_provider_for_model
-from src.logger_config import setup_logger
 
-logger = setup_logger(__name__)
+# Lazy logger initialization - will use config from configure_logging()
+logger = logging.getLogger(__name__)
 
 
 class LLMProviderRouter:

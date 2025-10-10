@@ -147,9 +147,12 @@ def configure_logging(verbose: bool = False):
         logging.getLogger("urllib3").setLevel(logging.WARNING)
         logging.getLogger("requests").setLevel(logging.WARNING)
         logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        logging.getLogger("httpcore.connection").setLevel(logging.WARNING)
+        logging.getLogger("httpcore.http11").setLevel(logging.WARNING)
         logging.getLogger("openai").setLevel(logging.WARNING)
 
     return logging.getLogger(__name__)
 
-# Default logger for backward compatibility
-logger = setup_logger()
+# Note: Default logger removed - use configure_logging() instead
+# All modules should use logging.getLogger(__name__) after configure_logging() is called

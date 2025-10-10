@@ -32,13 +32,15 @@ import json
 from typing import Dict, List, Optional, Tuple, Callable, Any
 from datetime import datetime
 
+import logging
+
 from src.config import LLM_MODELS, FALLBACK_MODELS, RETRY_CONFIG
 from src.llm_providers import get_provider_router
 from src.llm_validation import LLMResponseValidator
 from src.token_tracker import TokenTracker
-from src.logger_config import setup_logger
 
-logger = setup_logger(__name__)
+# Lazy logger initialization - will use config from configure_logging()
+logger = logging.getLogger(__name__)
 
 
 class LLMRequestHandler:
