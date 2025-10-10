@@ -246,7 +246,7 @@ class BatchProcessor:
             # 3. Add topic cost report to batch aggregator
             try:
                 # Construct path to token usage report
-                from src.utils import sanitize_filename
+                from main import sanitize_filename
                 topic_sanitized = sanitize_filename(topic)
                 token_report_path = os.path.join("output", topic_sanitized, "token_usage_report.json")
 

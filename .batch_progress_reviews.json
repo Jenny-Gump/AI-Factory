@@ -3,30 +3,29 @@
   "topics_file": "topics_reviews.txt",
   "total_topics": 2,
   "completed_topics": [
-    "10 alternatives on local machine for chatgpt",
-    "Best llm for sound generation full list of models with description"
+    "Test"
   ],
   "failed_topics": [],
   "current_topic": null,
-  "start_time": "2025-10-10T14:39:18.329201",
-  "last_update_time": "2025-10-10T15:23:51.975559",
+  "start_time": "2025-10-10T22:32:22.208282",
+  "last_update_time": "2025-10-10T22:51:46.080867",
   "topic_statuses": {
-    "10 alternatives on local machine for chatgpt": {
-      "topic": "10 alternatives on local machine for chatgpt",
+    "Test": {
+      "topic": "Test",
       "status": "completed",
-      "start_time": "2025-10-10T14:39:18.329557",
-      "end_time": "2025-10-10T15:23:21.655062",
+      "start_time": "2025-10-10T22:32:22.208595",
+      "end_time": "2025-10-10T22:51:46.017210",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
       "wordpress_url": null
     },
-    "Best llm for sound generation full list of models with description": {
-      "topic": "Best llm for sound generation full list of models with description",
-      "status": "completed",
-      "start_time": "2025-10-10T15:23:26.730651",
-      "end_time": "2025-10-10T15:23:46.905202",
-      "attempts": 1,
+    "Example": {
+      "topic": "Example",
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "attempts": 0,
       "error_message": null,
       "wordpress_id": null,
       "wordpress_url": null
