@@ -1,23 +1,22 @@
 {
   "content_type": "basic_articles",
   "topics_file": "topics_basic_articles.txt",
-  "total_topics": 4,
+  "total_topics": 3,
   "completed_topics": [
     "Generate Knowledge (GK) prompting technique guide, template, best practices",
     "Prompt Chaining prompting technique guide, template, best practices",
-    "Maieutic Prompting technique guide, template, best practices",
-    "JSON Prompting technique guide, template, best practices"
+    "Maieutic Prompting technique guide, template, best practices"
   ],
   "failed_topics": [],
   "current_topic": null,
-  "start_time": "2025-10-03T00:38:24.172456",
-  "last_update_time": "2025-10-03T02:29:04.429215",
+  "start_time": "2025-10-10T00:28:57.987887",
+  "last_update_time": "2025-10-10T02:16:18.770248",
   "topic_statuses": {
     "Generate Knowledge (GK) prompting technique guide, template, best practices": {
       "topic": "Generate Knowledge (GK) prompting technique guide, template, best practices",
       "status": "completed",
-      "start_time": "2025-10-03T00:38:24.172776",
-      "end_time": "2025-10-03T01:06:09.683973",
+      "start_time": "2025-10-10T00:28:57.988379",
+      "end_time": "2025-10-10T01:06:20.783094",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
@@ -26,8 +25,8 @@
     "Prompt Chaining prompting technique guide, template, best practices": {
       "topic": "Prompt Chaining prompting technique guide, template, best practices",
       "status": "completed",
-      "start_time": "2025-10-03T01:06:14.753530",
-      "end_time": "2025-10-03T01:27:42.994300",
+      "start_time": "2025-10-10T01:06:25.861347",
+      "end_time": "2025-10-10T01:43:09.359929",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
@@ -36,18 +35,8 @@
     "Maieutic Prompting technique guide, template, best practices": {
       "topic": "Maieutic Prompting technique guide, template, best practices",
       "status": "completed",
-      "start_time": "2025-10-03T01:27:48.055376",
-      "end_time": "2025-10-03T01:54:06.588409",
-      "attempts": 1,
-      "error_message": null,
-      "wordpress_id": null,
-      "wordpress_url": null
-    },
-    "JSON Prompting technique guide, template, best practices": {
-      "topic": "JSON Prompting technique guide, template, best practices",
-      "status": "completed",
-      "start_time": "2025-10-03T01:54:11.649060",
-      "end_time": "2025-10-03T02:28:59.370721",
+      "start_time": "2025-10-10T01:43:14.416871",
+      "end_time": "2025-10-10T02:16:13.710567",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
