@@ -1573,6 +1573,61 @@ def _convert_markdown_to_html(markdown_content: str) -> str:
     return result
 
 
+def parse_html_to_sections(html_content: str, original_sections: List[Dict]) -> List[Dict]:
+    """
+    Парсит HTML контент обратно в список секций, сопоставляя с оригинальными секциями.
+
+    Используется для преобразования fact-checked HTML обратно в структуру секций,
+    чтобы следующие этапы (link placement, editorial) могли работать с секциями.
+
+    Args:
+        html_content: HTML строка с секциями (разделенными тегами <h2>)
+        original_sections: Оригинальный список секций для сопоставления section_num
+
+    Returns:
+        Список секций в формате [{section_num, section_title, content, status}, ...]
+    """
+    import re
+
+    # Разделить HTML по тегам <h2>
+    # Паттерн: <h2>Title</h2>\nContent до следующего <h2> или конца строки
+    pattern = r'<h2>(.*?)</h2>\s*(.*?)(?=<h2>|$)'
+    matches = re.findall(pattern, html_content, re.DOTALL)
+
+    if not matches:
+        logger.warning("Could not parse HTML into sections - no <h2> tags found")
+        return []
+
+    parsed_sections = []
+
+    # Создать маппинг title -> original_section для быстрого поиска
+    title_to_section = {s.get("section_title", "").strip(): s for s in original_sections}
+
+    for idx, (title, content) in enumerate(matches):
+        title = title.strip()
+        content = content.strip()
+
+        # Найти оригинальную секцию по названию
+        original_section = title_to_section.get(title)
+
+        if original_section:
+            section_num = original_section.get("section_num", idx + 1)
+        else:
+            # Если не нашли точное совпадение, используем порядковый номер
+            section_num = idx + 1
+            logger.warning(f"Could not match section title '{title}' with original sections")
+
+        parsed_sections.append({
+            "section_num": section_num,
+            "section_title": title,
+            "content": f"<h2>{title}</h2>\n{content}",  # Включаем <h2> в контент
+            "status": "fact_checked"  # Помечаем что эта секция прошла fact-check
+        })
+
+    logger.info(f"Parsed HTML into {len(parsed_sections)} sections")
+    return parsed_sections
+
+
 def group_sections_for_fact_check(sections: List[Dict], group_size: int = 3) -> List[List[Dict]]:
     """
     Группирует секции для батчевой обработки факт-чека.
@@ -1602,7 +1657,7 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                        token_tracker: TokenTracker = None, model_name: str = None,
                        content_type: str = "basic_articles", variables_manager=None) -> tuple:
     """
-    Performs fact-checking on groups of sections and returns combined content with status.
+    Performs fact-checking on groups of sections and returns fact-checked sections with combined content.
 
     Args:
         sections: List of generated sections with content
@@ -1611,9 +1666,13 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
         token_tracker: Token usage tracker
         model_name: Override model name (uses config default if None)
         content_type: Content type for prompt selection
+        variables_manager: Optional VariablesManager instance
 
     Returns:
-        Tuple: (combined_fact_checked_content, fact_check_status)
+        Tuple: (fact_checked_sections, combined_fact_checked_content, fact_check_status)
+            - fact_checked_sections: List[Dict] - секции после fact-check
+            - combined_fact_checked_content: str - объединенный HTML контент
+            - fact_check_status: Dict - статус fact-check операции
     """
     logger.info(f"Starting grouped fact-checking for {len(sections)} sections...")
 
@@ -1629,12 +1688,15 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
         "error_details": []
     }
 
+    # Initialize list to collect all fact-checked sections
+    all_fact_checked_sections = []
+
     if not successful_sections:
         logger.warning("No successful sections to fact-check")
         fact_check_status["success"] = True  # Nothing to check = success
-        # Return combined content of original sections
+        # Return original sections without modifications
         combined_content = "\n\n".join([s.get("content", "") for s in sections if s.get("content")])
-        return combined_content, fact_check_status
+        return sections, combined_content, fact_check_status
 
     total_sections = len(successful_sections)
     logger.info(f"Total successful sections: {total_sections}")
@@ -1734,7 +1796,12 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                     logger.info(f"💾 Saved grounding metadata: {grounding_file}")
 
             fact_checked_content_parts.append(fact_checked_content)
-            logger.info(f"✅ Group {group_num} fact-checked successfully")
+
+            # Parse fact-checked content back into sections
+            group_fact_checked_sections = parse_html_to_sections(fact_checked_content, group)
+            all_fact_checked_sections.extend(group_fact_checked_sections)
+
+            logger.info(f"✅ Group {group_num} fact-checked successfully: {len(group_fact_checked_sections)} sections")
 
             # Add delay between group fact-check requests to avoid rate limits
             if group_idx < len(section_groups) - 1:
@@ -1764,6 +1831,12 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                 group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
             fact_checked_content_parts.append(group_original_content.strip())
 
+            # Add original sections to all_fact_checked_sections (mark as failed)
+            for section in group:
+                failed_section = section.copy()
+                failed_section["status"] = "fact_check_failed"
+                all_fact_checked_sections.append(failed_section)
+
     # Combine all fact-checked content parts
     combined_fact_checked_content = "\n\n".join(fact_checked_content_parts)
 
@@ -1778,8 +1851,9 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
         logger.warning(f"Failed sections: {', '.join(fact_check_status['failed_sections'])}")
 
     logger.info(f"Combined content length: {len(combined_fact_checked_content)} chars")
+    logger.info(f"Total fact-checked sections: {len(all_fact_checked_sections)}")
 
-    return combined_fact_checked_content, fact_check_status
+    return all_fact_checked_sections, combined_fact_checked_content, fact_check_status
 
 
 def merge_sections(sections: List[Dict], topic: str, structure: List[Dict]) -> Dict[str, Any]:

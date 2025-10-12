@@ -1,27 +1,82 @@
 {
   "content_type": "basic_articles",
   "topics_file": "topics_basic_articles.txt",
-  "total_topics": 3,
+  "total_topics": 14,
   "completed_topics": [
-    "Generate Knowledge (GK) prompting technique guide, template, best practices"
+    "Introspection of Thought Prompting — technique guide, template, best practices",
+    "Automated Prompt Optimization — technique guide, template, best practices",
+    "Multimodal Adaptive Prompting — technique guide, template, best practices",
+    "Prompt Chaining Workflow — technique guide, template, best practices",
+    "Retriever-Augmented Prompting (RAG) — technique guide, template, best practices",
+    "Structured Output Prompting (JSON/XML/YAML) — technique guide, template, best practices"
   ],
   "failed_topics": [],
   "current_topic": null,
-  "start_time": "2025-10-10T10:16:22.641960",
-  "last_update_time": "2025-10-10T11:35:38.165122",
+  "start_time": "2025-10-12T12:31:36.274868",
+  "last_update_time": "2025-10-12T16:55:53.353544",
   "topic_statuses": {
-    "Generate Knowledge (GK) prompting technique guide, template, best practices": {
-      "topic": "Generate Knowledge (GK) prompting technique guide, template, best practices",
+    "Introspection of Thought Prompting — technique guide, template, best practices": {
+      "topic": "Introspection of Thought Prompting — technique guide, template, best practices",
       "status": "completed",
-      "start_time": "2025-10-10T10:16:22.642463",
-      "end_time": "2025-10-10T11:35:38.135199",
+      "start_time": "2025-10-12T12:31:36.275091",
+      "end_time": "2025-10-12T13:15:02.036620",
       "attempts": 1,
       "error_message": null,
       "wordpress_id": null,
       "wordpress_url": null
     },
-    "Prompt Chaining prompting technique guide, template, best practices": {
-      "topic": "Prompt Chaining prompting technique guide, template, best practices",
+    "Automated Prompt Optimization — technique guide, template, best practices": {
+      "topic": "Automated Prompt Optimization — technique guide, template, best practices",
+      "status": "completed",
+      "start_time": "2025-10-12T13:15:07.090725",
+      "end_time": "2025-10-12T13:51:35.420947",
+      "attempts": 1,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Multimodal Adaptive Prompting — technique guide, template, best practices": {
+      "topic": "Multimodal Adaptive Prompting — technique guide, template, best practices",
+      "status": "completed",
+      "start_time": "2025-10-12T13:51:40.479296",
+      "end_time": "2025-10-12T14:43:56.709891",
+      "attempts": 1,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Prompt Chaining Workflow — technique guide, template, best practices": {
+      "topic": "Prompt Chaining Workflow — technique guide, template, best practices",
+      "status": "completed",
+      "start_time": "2025-10-12T14:44:01.806901",
+      "end_time": "2025-10-12T15:24:40.247669",
+      "attempts": 1,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Retriever-Augmented Prompting (RAG) — technique guide, template, best practices": {
+      "topic": "Retriever-Augmented Prompting (RAG) — technique guide, template, best practices",
+      "status": "completed",
+      "start_time": "2025-10-12T15:24:45.327032",
+      "end_time": "2025-10-12T16:03:01.409191",
+      "attempts": 1,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Structured Output Prompting (JSON/XML/YAML) — technique guide, template, best practices": {
+      "topic": "Structured Output Prompting (JSON/XML/YAML) — technique guide, template, best practices",
+      "status": "completed",
+      "start_time": "2025-10-12T16:03:06.476052",
+      "end_time": "2025-10-12T16:55:53.270754",
+      "attempts": 1,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Self-Verification / Double-Check Prompting — technique guide, template, best practices": {
+      "topic": "Self-Verification / Double-Check Prompting — technique guide, template, best practices",
       "status": "pending",
       "start_time": null,
       "end_time": null,
@@ -30,8 +85,68 @@
       "wordpress_id": null,
       "wordpress_url": null
     },
-    "Maieutic Prompting technique guide, template, best practices": {
-      "topic": "Maieutic Prompting technique guide, template, best practices",
+    "Dynamic Context Adaptation Prompting — technique guide, template, best practices": {
+      "topic": "Dynamic Context Adaptation Prompting — technique guide, template, best practices",
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "attempts": 0,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Domain-Specific Prompt Engineering — technique guide, template, best practices": {
+      "topic": "Domain-Specific Prompt Engineering — technique guide, template, best practices",
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "attempts": 0,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Feedback-Loop Optimization Prompting — technique guide, template, best practices": {
+      "topic": "Feedback-Loop Optimization Prompting — technique guide, template, best practices",
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "attempts": 0,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Safety-Aware Prompting (Injection-Resistant Design) — technique guide, template, best practices": {
+      "topic": "Safety-Aware Prompting (Injection-Resistant Design) — technique guide, template, best practices",
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "attempts": 0,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Meta-Prompting (Prompt that Designs Prompts) — technique guide, template, best practices": {
+      "topic": "Meta-Prompting (Prompt that Designs Prompts) — technique guide, template, best practices",
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "attempts": 0,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Few-Shot + Retrieval Hybrid Prompting — technique guide, template, best practices": {
+      "topic": "Few-Shot + Retrieval Hybrid Prompting — technique guide, template, best practices",
+      "status": "pending",
+      "start_time": null,
+      "end_time": null,
+      "attempts": 0,
+      "error_message": null,
+      "wordpress_id": null,
+      "wordpress_url": null
+    },
+    "Programmatic Prompt Composition (via code or agents) — technique guide, template, best practices": {
+      "topic": "Programmatic Prompt Composition (via code or agents) — technique guide, template, best practices",
       "status": "pending",
       "start_time": null,
       "end_time": null,
