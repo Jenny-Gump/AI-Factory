@@ -1573,61 +1573,6 @@ def _convert_markdown_to_html(markdown_content: str) -> str:
     return result
 
 
-def parse_html_to_sections(html_content: str, original_sections: List[Dict]) -> List[Dict]:
-    """
-    Парсит HTML контент обратно в список секций, сопоставляя с оригинальными секциями.
-
-    Используется для преобразования fact-checked HTML обратно в структуру секций,
-    чтобы следующие этапы (link placement, editorial) могли работать с секциями.
-
-    Args:
-        html_content: HTML строка с секциями (разделенными тегами <h2>)
-        original_sections: Оригинальный список секций для сопоставления section_num
-
-    Returns:
-        Список секций в формате [{section_num, section_title, content, status}, ...]
-    """
-    import re
-
-    # Разделить HTML по тегам <h2>
-    # Паттерн: <h2>Title</h2>\nContent до следующего <h2> или конца строки
-    pattern = r'<h2>(.*?)</h2>\s*(.*?)(?=<h2>|$)'
-    matches = re.findall(pattern, html_content, re.DOTALL)
-
-    if not matches:
-        logger.warning("Could not parse HTML into sections - no <h2> tags found")
-        return []
-
-    parsed_sections = []
-
-    # Создать маппинг title -> original_section для быстрого поиска
-    title_to_section = {s.get("section_title", "").strip(): s for s in original_sections}
-
-    for idx, (title, content) in enumerate(matches):
-        title = title.strip()
-        content = content.strip()
-
-        # Найти оригинальную секцию по названию
-        original_section = title_to_section.get(title)
-
-        if original_section:
-            section_num = original_section.get("section_num", idx + 1)
-        else:
-            # Если не нашли точное совпадение, используем порядковый номер
-            section_num = idx + 1
-            logger.warning(f"Could not match section title '{title}' with original sections")
-
-        parsed_sections.append({
-            "section_num": section_num,
-            "section_title": title,
-            "content": f"<h2>{title}</h2>\n{content}",  # Включаем <h2> в контент
-            "status": "fact_checked"  # Помечаем что эта секция прошла fact-check
-        })
-
-    logger.info(f"Parsed HTML into {len(parsed_sections)} sections")
-    return parsed_sections
-
-
 def group_sections_for_fact_check(sections: List[Dict], group_size: int = 3) -> List[List[Dict]]:
     """
     Группирует секции для батчевой обработки факт-чека.
@@ -1657,7 +1602,7 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                        token_tracker: TokenTracker = None, model_name: str = None,
                        content_type: str = "basic_articles", variables_manager=None) -> tuple:
     """
-    Performs fact-checking on groups of sections and returns fact-checked sections with combined content.
+    Performs fact-checking on groups of sections and returns combined content with status.
 
     Args:
         sections: List of generated sections with content
@@ -1666,13 +1611,9 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
         token_tracker: Token usage tracker
         model_name: Override model name (uses config default if None)
         content_type: Content type for prompt selection
-        variables_manager: Optional VariablesManager instance
 
     Returns:
-        Tuple: (fact_checked_sections, combined_fact_checked_content, fact_check_status)
-            - fact_checked_sections: List[Dict] - секции после fact-check
-            - combined_fact_checked_content: str - объединенный HTML контент
-            - fact_check_status: Dict - статус fact-check операции
+        Tuple: (combined_fact_checked_content, fact_check_status)
     """
     logger.info(f"Starting grouped fact-checking for {len(sections)} sections...")
 
@@ -1688,15 +1629,12 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
         "error_details": []
     }
 
-    # Initialize list to collect all fact-checked sections
-    all_fact_checked_sections = []
-
     if not successful_sections:
         logger.warning("No successful sections to fact-check")
         fact_check_status["success"] = True  # Nothing to check = success
-        # Return original sections without modifications
+        # Return combined content of original sections
         combined_content = "\n\n".join([s.get("content", "") for s in sections if s.get("content")])
-        return sections, combined_content, fact_check_status
+        return combined_content, fact_check_status
 
     total_sections = len(successful_sections)
     logger.info(f"Total successful sections: {total_sections}")
@@ -1796,12 +1734,7 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                     logger.info(f"💾 Saved grounding metadata: {grounding_file}")
 
             fact_checked_content_parts.append(fact_checked_content)
-
-            # Parse fact-checked content back into sections
-            group_fact_checked_sections = parse_html_to_sections(fact_checked_content, group)
-            all_fact_checked_sections.extend(group_fact_checked_sections)
-
-            logger.info(f"✅ Group {group_num} fact-checked successfully: {len(group_fact_checked_sections)} sections")
+            logger.info(f"✅ Group {group_num} fact-checked successfully")
 
             # Add delay between group fact-check requests to avoid rate limits
             if group_idx < len(section_groups) - 1:
@@ -1831,12 +1764,6 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
                 group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
             fact_checked_content_parts.append(group_original_content.strip())
 
-            # Add original sections to all_fact_checked_sections (mark as failed)
-            for section in group:
-                failed_section = section.copy()
-                failed_section["status"] = "fact_check_failed"
-                all_fact_checked_sections.append(failed_section)
-
     # Combine all fact-checked content parts
     combined_fact_checked_content = "\n\n".join(fact_checked_content_parts)
 
@@ -1851,9 +1778,8 @@ def fact_check_sections(sections: List[Dict], topic: str, base_path: str = None,
         logger.warning(f"Failed sections: {', '.join(fact_check_status['failed_sections'])}")
 
     logger.info(f"Combined content length: {len(combined_fact_checked_content)} chars")
-    logger.info(f"Total fact-checked sections: {len(all_fact_checked_sections)}")
 
-    return all_fact_checked_sections, combined_fact_checked_content, fact_check_status
+    return combined_fact_checked_content, fact_check_status
 
 
 def merge_sections(sections: List[Dict], topic: str, structure: List[Dict]) -> Dict[str, Any]:
@@ -2194,10 +2120,14 @@ def _create_error_response(topic: str, error_message: str, error_type: str) -> D
 
 def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = None,
                            token_tracker: TokenTracker = None, model_name: str = None,
-                           content_type: str = "basic_articles", variables_manager=None) -> tuple:
+                           content_type: str = "basic_articles", variables_manager=None,
+                           fact_check_base_path: str = None) -> tuple:
     """
     Places relevant links in sections after fact-checking.
     Groups sections by 3 for batch processing.
+
+    If fact_check_base_path is provided and contains group_* folders, uses those groups directly
+    to preserve fact-check grouping. Otherwise, creates new groups from sections.
 
     Args:
         sections: List of fact-checked sections with content
@@ -2207,14 +2137,44 @@ def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = N
         model_name: Override model name (uses config default if None)
         content_type: Content type for prompt selection
         variables_manager: Optional VariablesManager instance
+        fact_check_base_path: Path to fact-check directory (to check for existing groups)
 
     Returns:
         Tuple: (combined_content_with_links, link_placement_status)
     """
     logger.info(f"Starting link placement for {len(sections)} sections...")
 
-    # Filter successful sections (accept both "success" and "translated" statuses)
-    successful_sections = [s for s in sections if s.get("status") in ["success", "translated"] and s.get("content")]
+    # Check if we should use fact-check groups
+    use_fact_check_groups = False
+    fact_check_groups = []
+
+    if fact_check_base_path and os.path.exists(fact_check_base_path):
+        # Look for group_* directories
+        group_dirs = sorted([d for d in os.listdir(fact_check_base_path) if d.startswith('group_') and os.path.isdir(os.path.join(fact_check_base_path, d))])
+
+        if group_dirs:
+            logger.info(f"Found {len(group_dirs)} fact-check groups - using those groups for link placement")
+            use_fact_check_groups = True
+
+            # Load fact-checked content from each group
+            for group_dir in group_dirs:
+                group_path = os.path.join(fact_check_base_path, group_dir)
+                response_file = os.path.join(group_path, "llm_responses_raw", f"{group_dir}_fact_check_response.txt")
+
+                if os.path.exists(response_file):
+                    with open(response_file, 'r', encoding='utf-8') as f:
+                        fact_checked_content = f.read()
+
+                    fact_check_groups.append({
+                        "group_dir": group_dir,
+                        "content": fact_checked_content
+                    })
+                    logger.info(f"Loaded {group_dir}: {len(fact_checked_content)} chars")
+                else:
+                    logger.warning(f"Response file not found for {group_dir}")
+
+    if not use_fact_check_groups:
+        logger.info("No fact-check groups found - creating new groups from translated sections")
 
     # Initialize link placement status tracking
     link_placement_status = {
@@ -2225,134 +2185,246 @@ def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = N
         "error_details": []
     }
 
-    if not successful_sections:
-        logger.warning("No successful sections for link placement")
-        link_placement_status["success"] = True  # Nothing to process = success
-        # Return combined content of original sections
-        combined_content = "\n\n".join([s.get("content", "") for s in sections if s.get("content")])
-        return combined_content, link_placement_status
-
-    total_sections = len(successful_sections)
-    logger.info(f"Total successful sections: {total_sections}")
-
-    # Group sections by 3
-    section_groups = group_sections_for_fact_check(successful_sections, group_size=3)
-    logger.info(f"Created {len(section_groups)} groups for link placement")
-
-    # Update status with total groups
-    link_placement_status["total_groups"] = len(section_groups)
-
     content_with_links_parts = []
 
-    # Process each group
-    for group_idx, group in enumerate(section_groups):
-        group_num = group_idx + 1
-        logger.info(f"🔗 Placing links in group {group_num}/{len(section_groups)} with {len(group)} sections")
+    # Branch: Use fact-check groups OR create new groups from sections
+    if use_fact_check_groups:
+        # Use existing fact-check groups
+        logger.info(f"Processing {len(fact_check_groups)} fact-check groups")
+        link_placement_status["total_groups"] = len(fact_check_groups)
 
-        # No outer retry loop - make_llm_request() handles all retries internally (6 attempts total)
-        try:
-            # Combine content from all sections in the group
-            combined_content = ""
-            section_titles = []
+        for group_idx, group_data in enumerate(fact_check_groups):
+            group_num = group_idx + 1
+            group_dir = group_data["group_dir"]
+            combined_content = group_data["content"]
 
-            for section in group:
-                section_title = section.get("section_title", "Untitled Section")
-                section_content = section.get("content", "")
-                section_titles.append(section_title)
-                combined_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+            logger.info(f"🔗 Placing links in {group_dir} ({len(combined_content)} chars)")
 
-            # Prepare messages for link placement in the group
-            messages = _load_and_prepare_messages(
-                content_type,
-                "11_link_placement",
-                {
-                    "topic": topic,
-                    "section_title": f"Группа {group_num} ({', '.join(section_titles)})",
-                    "section_content": combined_content.strip()
-                },
-                variables_manager=variables_manager,
-                stage_name="link_placement"
-            )
+            # No outer retry loop - make_llm_request() handles all retries internally (6 attempts total)
+            try:
+                # Extract section titles from HTML for logging (approximate)
+                import re
+                section_titles_match = re.findall(r'<h2>(.*?)</h2>', combined_content)
+                section_titles = section_titles_match if section_titles_match else ["Unknown sections"]
 
-            # Create group-specific path
-            group_path = os.path.join(base_path, f"group_{group_num}") if base_path else None
-
-            # Make link placement request with automatic retry/fallback (6 attempts internally)
-            response_obj, actual_model = make_llm_request(
-                stage_name="link_placement",
-                model_name=model_name or LLM_MODELS.get("link_placement"),
-                messages=messages,
-                token_tracker=token_tracker,
-                base_path=group_path,
-                temperature=0.3,  # Slightly higher for creative link placement
-                validation_level="minimal",  # Link placement uses minimal validation (doc: HTML content causes false positives)
-                enable_web_search=True  # Enable Google Search grounding for Gemini models
-            )
-
-            content_with_links = response_obj.choices[0].message.content
-            content_with_links = clean_llm_tokens(content_with_links)  # Clean LLM tokens
-
-            # Debug logging
-            logger.info(f"📊 Group {group_num} - Response content size: {len(content_with_links)} chars")
-
-            # Save interaction
-            if group_path:
-                save_llm_interaction(
-                    base_path=group_path,
-                    stage_name="link_placement",
-                    messages=messages,
-                    response=content_with_links,
-                    request_id=f"group_{group_num}_link_placement",
-                    extra_params={"model": actual_model}
+                # Prepare messages for link placement in the group
+                messages = _load_and_prepare_messages(
+                    content_type,
+                    "11_link_placement",
+                    {
+                        "topic": topic,
+                        "section_title": f"{group_dir.replace('_', ' ').title()} ({', '.join(section_titles)})",
+                        "section_content": combined_content.strip()
+                    },
+                    variables_manager=variables_manager,
+                    stage_name="link_placement"
                 )
 
-                # Save grounding metadata if available (web search results)
-                if hasattr(response_obj, 'grounding_metadata') and response_obj.grounding_metadata is not None:
-                    grounding_file = os.path.join(group_path, "grounding_metadata.json")
-                    grounding_data = {
-                        "group_num": group_num,
-                        "timestamp": datetime.now().isoformat(),
-                        "model": actual_model,
-                        "web_search_queries": response_obj.grounding_metadata.get("webSearchQueries", []),
-                        "grounding_chunks": response_obj.grounding_metadata.get("groundingChunks", []),
-                        "grounding_supports": response_obj.grounding_metadata.get("groundingSupports", [])
-                    }
+                # Create group-specific path
+                group_path = os.path.join(base_path, group_dir) if base_path else None
 
-                    with open(grounding_file, 'w', encoding='utf-8') as f:
-                        json.dump(grounding_data, f, indent=2, ensure_ascii=False)
+                # Make link placement request with automatic retry/fallback (6 attempts internally)
+                response_obj, actual_model = make_llm_request(
+                    stage_name="link_placement",
+                    model_name=model_name or LLM_MODELS.get("link_placement"),
+                    messages=messages,
+                    token_tracker=token_tracker,
+                    base_path=group_path,
+                    temperature=0.3,  # Slightly higher for creative link placement
+                    validation_level="minimal",  # Link placement uses minimal validation (doc: HTML content causes false positives)
+                    enable_web_search=True  # Enable Google Search grounding for Gemini models
+                )
 
-                    logger.info(f"💾 Saved grounding metadata: {grounding_file}")
+                content_with_links = response_obj.choices[0].message.content
+                content_with_links = clean_llm_tokens(content_with_links)  # Clean LLM tokens
 
-            content_with_links_parts.append(content_with_links)
-            logger.info(f"✅ Group {group_num} link placement completed successfully")
+                # Debug logging
+                logger.info(f"📊 {group_dir} - Response content size: {len(content_with_links)} chars")
 
-            # Add delay between group requests to avoid rate limits
-            if group_idx < len(section_groups) - 1:
-                delay = 3  # 3 seconds between group requests
-                logger.info(f"⏳ Waiting {delay}s before next group...")
-                time.sleep(delay)
+                # Save interaction
+                if group_path:
+                    save_llm_interaction(
+                        base_path=group_path,
+                        stage_name="link_placement",
+                        messages=messages,
+                        response=content_with_links,
+                        request_id=f"{group_dir}_link_placement",
+                        extra_params={"model": actual_model}
+                    )
 
-        except Exception as e:
-            # All retry attempts exhausted in make_llm_request
-            logger.error(f"💥 Group {group_num} link placement failed after all retry attempts: {e}")
+                    # Save grounding metadata if available (web search results)
+                    if hasattr(response_obj, 'grounding_metadata') and response_obj.grounding_metadata is not None:
+                        grounding_file = os.path.join(group_path, "grounding_metadata.json")
+                        grounding_data = {
+                            "group_dir": group_dir,
+                            "timestamp": datetime.now().isoformat(),
+                            "model": actual_model,
+                            "web_search_queries": response_obj.grounding_metadata.get("webSearchQueries", []),
+                            "grounding_chunks": response_obj.grounding_metadata.get("groundingChunks", []),
+                            "grounding_supports": response_obj.grounding_metadata.get("groundingSupports", [])
+                        }
 
-            # Track failure in status
-            link_placement_status["failed_groups"] += 1
-            group_section_titles = [section.get("section_title", "Untitled Section") for section in group]
-            link_placement_status["failed_sections"].extend(group_section_titles)
-            link_placement_status["error_details"].append({
-                "group": group_num,
-                "sections": group_section_titles,
-                "error": str(e)
-            })
+                        with open(grounding_file, 'w', encoding='utf-8') as f:
+                            json.dump(grounding_data, f, indent=2, ensure_ascii=False)
 
-            # Keep original content for this group if link placement fails
-            group_original_content = ""
-            for section in group:
-                section_title = section.get("section_title", "Untitled Section")
-                section_content = section.get("content", "")
-                group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
-            content_with_links_parts.append(group_original_content.strip())
+                        logger.info(f"💾 Saved grounding metadata: {grounding_file}")
+
+                content_with_links_parts.append(content_with_links)
+                logger.info(f"✅ {group_dir} link placement completed successfully")
+
+                # Add delay between group requests to avoid rate limits
+                if group_idx < len(fact_check_groups) - 1:
+                    delay = 3  # 3 seconds between group requests
+                    logger.info(f"⏳ Waiting {delay}s before next group...")
+                    time.sleep(delay)
+
+            except Exception as e:
+                # All retry attempts exhausted in make_llm_request
+                logger.error(f"💥 {group_dir} link placement failed after all retry attempts: {e}")
+
+                # Track failure in status
+                link_placement_status["failed_groups"] += 1
+                link_placement_status["failed_sections"].extend(section_titles)
+                link_placement_status["error_details"].append({
+                    "group": group_dir,
+                    "sections": section_titles,
+                    "error": str(e)
+                })
+
+                # Keep original fact-checked content for this group if link placement fails
+                content_with_links_parts.append(combined_content.strip())
+
+    else:
+        # Create new groups from sections (original logic)
+        # Filter successful sections (accept both "success" and "translated" statuses)
+        successful_sections = [s for s in sections if s.get("status") in ["success", "translated"] and s.get("content")]
+
+        if not successful_sections:
+            logger.warning("No successful sections for link placement")
+            link_placement_status["success"] = True  # Nothing to process = success
+            # Return combined content of original sections
+            combined_content = "\n\n".join([s.get("content", "") for s in sections if s.get("content")])
+            return combined_content, link_placement_status
+
+        total_sections = len(successful_sections)
+        logger.info(f"Total successful sections: {total_sections}")
+
+        # Group sections by 3
+        section_groups = group_sections_for_fact_check(successful_sections, group_size=3)
+        logger.info(f"Created {len(section_groups)} groups for link placement")
+
+        # Update status with total groups
+        link_placement_status["total_groups"] = len(section_groups)
+
+        # Process each group
+        for group_idx, group in enumerate(section_groups):
+            group_num = group_idx + 1
+            logger.info(f"🔗 Placing links in group {group_num}/{len(section_groups)} with {len(group)} sections")
+
+            # No outer retry loop - make_llm_request() handles all retries internally (6 attempts total)
+            try:
+                # Combine content from all sections in the group
+                combined_content = ""
+                section_titles = []
+
+                for section in group:
+                    section_title = section.get("section_title", "Untitled Section")
+                    section_content = section.get("content", "")
+                    section_titles.append(section_title)
+                    combined_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+
+                # Prepare messages for link placement in the group
+                messages = _load_and_prepare_messages(
+                    content_type,
+                    "11_link_placement",
+                    {
+                        "topic": topic,
+                        "section_title": f"Группа {group_num} ({', '.join(section_titles)})",
+                        "section_content": combined_content.strip()
+                    },
+                    variables_manager=variables_manager,
+                    stage_name="link_placement"
+                )
+
+                # Create group-specific path
+                group_path = os.path.join(base_path, f"group_{group_num}") if base_path else None
+
+                # Make link placement request with automatic retry/fallback (6 attempts internally)
+                response_obj, actual_model = make_llm_request(
+                    stage_name="link_placement",
+                    model_name=model_name or LLM_MODELS.get("link_placement"),
+                    messages=messages,
+                    token_tracker=token_tracker,
+                    base_path=group_path,
+                    temperature=0.3,  # Slightly higher for creative link placement
+                    validation_level="minimal",  # Link placement uses minimal validation (doc: HTML content causes false positives)
+                    enable_web_search=True  # Enable Google Search grounding for Gemini models
+                )
+
+                content_with_links = response_obj.choices[0].message.content
+                content_with_links = clean_llm_tokens(content_with_links)  # Clean LLM tokens
+
+                # Debug logging
+                logger.info(f"📊 Group {group_num} - Response content size: {len(content_with_links)} chars")
+
+                # Save interaction
+                if group_path:
+                    save_llm_interaction(
+                        base_path=group_path,
+                        stage_name="link_placement",
+                        messages=messages,
+                        response=content_with_links,
+                        request_id=f"group_{group_num}_link_placement",
+                        extra_params={"model": actual_model}
+                    )
+
+                    # Save grounding metadata if available (web search results)
+                    if hasattr(response_obj, 'grounding_metadata') and response_obj.grounding_metadata is not None:
+                        grounding_file = os.path.join(group_path, "grounding_metadata.json")
+                        grounding_data = {
+                            "group_num": group_num,
+                            "timestamp": datetime.now().isoformat(),
+                            "model": actual_model,
+                            "web_search_queries": response_obj.grounding_metadata.get("webSearchQueries", []),
+                            "grounding_chunks": response_obj.grounding_metadata.get("groundingChunks", []),
+                            "grounding_supports": response_obj.grounding_metadata.get("groundingSupports", [])
+                        }
+
+                        with open(grounding_file, 'w', encoding='utf-8') as f:
+                            json.dump(grounding_data, f, indent=2, ensure_ascii=False)
+
+                        logger.info(f"💾 Saved grounding metadata: {grounding_file}")
+
+                content_with_links_parts.append(content_with_links)
+                logger.info(f"✅ Group {group_num} link placement completed successfully")
+
+                # Add delay between group requests to avoid rate limits
+                if group_idx < len(section_groups) - 1:
+                    delay = 3  # 3 seconds between group requests
+                    logger.info(f"⏳ Waiting {delay}s before next group...")
+                    time.sleep(delay)
+
+            except Exception as e:
+                # All retry attempts exhausted in make_llm_request
+                logger.error(f"💥 Group {group_num} link placement failed after all retry attempts: {e}")
+
+                # Track failure in status
+                link_placement_status["failed_groups"] += 1
+                group_section_titles = [section.get("section_title", "Untitled Section") for section in group]
+                link_placement_status["failed_sections"].extend(group_section_titles)
+                link_placement_status["error_details"].append({
+                    "group": group_num,
+                    "sections": group_section_titles,
+                    "error": str(e)
+                })
+
+                # Keep original content for this group if link placement fails
+                group_original_content = ""
+                for section in group:
+                    section_title = section.get("section_title", "Untitled Section")
+                    section_content = section.get("content", "")
+                    group_original_content += f"<h2>{section_title}</h2>\n{section_content}\n\n"
+                content_with_links_parts.append(group_original_content.strip())
 
     # Combine all content parts with links
     combined_content_with_links = "\n\n".join(content_with_links_parts)

@@ -436,11 +436,6 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     if fact_check_mode == "off":
         logger.info("🚫 FACT-CHECKING DISABLED by user - merging translated sections")
 
-        # Create fact_checked_sections from translated_sections (no modifications)
-        fact_checked_sections = [s.copy() for s in translated_sections]
-        for section in fact_checked_sections:
-            section["status"] = "fact_check_bypassed"
-
         # Create combined HTML content from translated sections
         combined_html = ""
         for section in translated_sections:
@@ -453,7 +448,6 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         # Create fact_check directory and save bypass artifacts for consistency
         os.makedirs(paths["fact_check"], exist_ok=True)
         save_artifact({"content": fact_checked_content}, paths["fact_check"], "fact_checked_content.json")
-        save_artifact({"sections": fact_checked_sections}, paths["fact_check"], "fact_checked_sections.json")
 
         # Create fake fact-check status for compatibility
         fact_check_status = {
@@ -471,9 +465,9 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     else:
         logger.info("Starting grouped fact-checking of translated sections...")
 
-        # Get fact-checked sections, combined content and status
-        fact_checked_sections, fact_checked_content, fact_check_status = fact_check_sections(
-            sections=translated_sections,  # Use translated sections
+        # Get combined fact-checked content and status
+        fact_checked_content, fact_check_status = fact_check_sections(
+            sections=translated_sections,  # CHANGED: Use translated sections instead of generated
             topic=topic,
             base_path=paths["fact_check"],
             token_tracker=token_tracker,
@@ -481,9 +475,6 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
             content_type=content_type,
             variables_manager=variables_manager
         )
-
-        # Save fact-checked sections for next stage (link placement)
-        save_artifact({"sections": fact_checked_sections}, paths["fact_check"], "fact_checked_sections.json")
 
         # Save the combined fact-checked content
         save_artifact({"content": fact_checked_content}, paths["fact_check"], "fact_checked_content.json")
@@ -513,9 +504,9 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         logger.info(f"✅ Fact-checking passed: All {fact_check_status.get('total_groups', 0)} groups verified")
         logger.info(f"Fact-checking completed: Combined content length: {len(fact_checked_content)} characters")
 
-    # --- Этап 11: Link Placement (на fact-checked секциях) ---
+    # --- Этап 11: Link Placement (на переведенном и fact-checked тексте) ---
     logger.info("═" * 67)
-    logger.info(f" ЭТАП 11: Link Placement ({len(fact_checked_sections)} секций)")
+    logger.info(f" ЭТАП 11: Link Placement ({len(translated_sections)} секций)")
     logger.info("═" * 67)
     link_placement_mode = variables_manager.active_variables.get("link_placement_mode", "on") if variables_manager else "on"
 
@@ -527,16 +518,17 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
         save_artifact({"skipped": True, "reason": "link_placement_mode=off"},
                      paths["link_placement"], "link_placement_status.json")
     else:
-        logger.info("🔗 Starting link placement in fact-checked sections...")
+        logger.info("🔗 Starting link placement in translated sections...")
 
         content_with_links, link_placement_status = place_links_in_sections(
-            sections=fact_checked_sections,  # ✅ FIXED: Use fact-checked sections from stage 10
+            sections=translated_sections,  # CHANGED: Use translated sections
             topic=topic,
             base_path=paths["link_placement"],
             token_tracker=token_tracker,
             model_name=active_models.get("link_placement"),
             content_type=content_type,
-            variables_manager=variables_manager
+            variables_manager=variables_manager,
+            fact_check_base_path=paths["fact_check"]  # Pass fact-check path to preserve grouping
         )
 
         # Save link placement status
@@ -708,7 +700,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         # Run fact-checking on translated sections
         from src.llm_processing import fact_check_sections
 
-        fact_checked_sections, fact_checked_content, fact_check_status = fact_check_sections(
+        fact_checked_content, fact_check_status = fact_check_sections(
             sections=translated_sections,
             topic=topic,
             base_path=paths["fact_check"],
@@ -719,9 +711,6 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         )
 
         # Save results
-        save_artifact({"sections": fact_checked_sections},
-                     paths["fact_check"],
-                     "fact_checked_sections.json")
         save_artifact({"content": fact_checked_content},
                      paths["fact_check"],
                      "fact_checked_content.json")
@@ -740,45 +729,35 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         logger.info(" ЭТАП 11: Link Placement (запуск с этапа)")
         logger.info("═" * 67)
 
-        # Try to load fact_checked_sections from 10_fact_check first
-        fact_checked_sections_path = os.path.join(paths["fact_check"], "fact_checked_sections.json")
-        sections_for_links = None
-
-        if os.path.exists(fact_checked_sections_path):
-            logger.info("✅ Loading fact-checked sections from stage 10")
-            with open(fact_checked_sections_path, 'r', encoding='utf-8') as f:
-                fact_checked_data = json.load(f)
-            sections_for_links = fact_checked_data.get("sections", [])
-        else:
-            # Fallback to translated_sections if fact-check was disabled
-            logger.warning("⚠️ fact_checked_sections.json not found, falling back to translated_sections")
-            translated_sections_path = os.path.join(paths["translation"], "translated_sections.json")
-            if not os.path.exists(translated_sections_path):
-                logger.error(f"Required file not found: {translated_sections_path}")
-                logger.error("Run translation or fact-check stage first")
-                return
-
-            with open(translated_sections_path, 'r', encoding='utf-8') as f:
-                translated_data = json.load(f)
-            sections_for_links = translated_data.get("sections", [])
-
-        if not sections_for_links:
-            logger.error("No sections found for link placement")
+        # Load translated_sections from 09_translation
+        translated_sections_path = os.path.join(paths["translation"], "translated_sections.json")
+        if not os.path.exists(translated_sections_path):
+            logger.error(f"Required file not found: {translated_sections_path}")
+            logger.error("Run translation stage first to create translated sections")
             return
 
-        logger.info(f"Found {len(sections_for_links)} sections for link placement")
+        with open(translated_sections_path, 'r', encoding='utf-8') as f:
+            translated_data = json.load(f)
 
-        # Run link placement on sections
+        translated_sections = translated_data.get("sections", [])
+        if not translated_sections:
+            logger.error("No translated sections found in translated_sections.json")
+            return
+
+        logger.info(f"Found {len(translated_sections)} translated sections for link placement")
+
+        # Run link placement on translated sections
         from src.llm_processing import place_links_in_sections
 
         content_with_links, link_placement_status = place_links_in_sections(
-            sections=sections_for_links,
+            sections=translated_sections,
             topic=topic,
             base_path=paths["link_placement"],
             token_tracker=token_tracker,
             model_name=active_models.get("link_placement"),
             content_type=content_type,
-            variables_manager=variables_manager
+            variables_manager=variables_manager,
+            fact_check_base_path=paths["fact_check"]  # Pass fact-check path to preserve grouping
         )
 
         # Save results
