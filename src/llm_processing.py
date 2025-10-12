@@ -2434,7 +2434,7 @@ def place_links_in_sections(sections: List[Dict], topic: str, base_path: str = N
 
     # Log final status
     if link_placement_status["success"]:
-        logger.info(f"✅ Link placement completed successfully: {len(section_groups)} groups processed")
+        logger.info(f"✅ Link placement completed successfully: {link_placement_status['total_groups']} groups processed")
     else:
         logger.warning(f"⚠️ Link placement partially failed: {link_placement_status['failed_groups']}/{link_placement_status['total_groups']} groups failed")
         logger.warning(f"Failed sections: {', '.join(link_placement_status['failed_sections'])}")
