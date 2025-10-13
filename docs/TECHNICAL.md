@@ -67,13 +67,13 @@ LLM_MODELS = {
 
 ```python
 FALLBACK_MODELS = {
-    "extract_sections": "google/gemini-2.5-flash-lite-preview-06-17",
-    "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",
-    "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",
+    "extract_sections": "google/gemini-2.0-flash-001",
+    "create_structure": "google/gemini-2.0-flash-001",
+    "generate_article": "google/gemini-2.0-flash-001",
     "fact_check": "gemini-2.5-flash",  # Stable Gemini 2.5 Flash with web search
     "link_placement": "gemini-2.5-flash",  # Stable Gemini 2.5 Flash with web search
-    "translation": "google/gemini-2.5-flash-lite-preview-06-17",
-    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",
+    "translation": "google/gemini-2.0-flash-001",
+    "editorial_review": "google/gemini-2.0-flash-001",
 }
 ```
 
@@ -82,7 +82,7 @@ FALLBACK_MODELS = {
 ```python
 LLM_PROVIDERS = {
     "deepseek-reasoner": "deepseek",
-    "google/gemini-2.5-flash-lite-preview-06-17": "openrouter",
+    "google/gemini-2.0-flash-001": "openrouter",
     "gemini-2.5-flash-preview-09-2025": "google_direct",  # Direct Gemini API
 }
 ```
@@ -333,7 +333,8 @@ LLM модели возвращают разные форматы данных �
         "section_order": number,
         "content_requirements": "string",
         "subsections": ["array"],
-        "evidence_pack": "string"
+        "evidence_pack": "string",
+        "section_length (symbols)": number
     }
 ]
 ```
@@ -715,12 +716,12 @@ LLM_MODELS = {
 
 # Fallback models (second choice)
 FALLBACK_MODELS = {
-    "extract_sections": "google/gemini-2.5-flash-lite-preview-06-17",
-    "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",
-    "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",
-    "translation": "google/gemini-2.5-flash-lite-preview-06-17",
+    "extract_sections": "google/gemini-2.0-flash-001",
+    "create_structure": "google/gemini-2.0-flash-001",
+    "generate_article": "google/gemini-2.0-flash-001",
+    "translation": "google/gemini-2.0-flash-001",
     "fact_check": "gemini-2.5-flash",
-    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17"
+    "editorial_review": "google/gemini-2.0-flash-001"
 }
 
 # Retry configuration

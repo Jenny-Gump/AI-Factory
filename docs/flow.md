@@ -296,7 +296,8 @@ This document provides a detailed, step-by-step breakdown of the complete 12-sta
     "section_description": "Объяснение базовых принципов и концепций",
     "content_focus": "Образовательный контент для новичков",
     "key_points": "Определения, принципы работы, основные преимущества",
-    "subsections": ["Что такое технология", "Принципы работы"]
+    "subsections": ["Что такое технология", "Принципы работы"],
+    "section_length (symbols)": 3542
   }
 ]
 ```

@@ -45,7 +45,8 @@
         "section_order": number,
         "content_requirements": "string",
         "subsections": ["array"],
-        "evidence_pack": "string"
+        "evidence_pack": "string",
+        "section_length (symbols)": number
     }
 ]
 ```
@@ -310,9 +311,9 @@ LLM_MODELS = {
 }
 
 FALLBACK_MODELS = {
-    "extract_sections": "google/gemini-2.5-flash-lite-preview-06-17",  # Fallback
-    "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",  # Fallback
-    "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",  # Fallback
+    "extract_sections": "google/gemini-2.0-flash-001",  # Fallback
+    "create_structure": "google/gemini-2.0-flash-001",  # Fallback
+    "generate_article": "google/gemini-2.0-flash-001",  # Fallback
     ...
 }
 
