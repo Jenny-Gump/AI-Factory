@@ -304,7 +304,7 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
     messages = _load_and_prepare_messages(
         content_type,
         "02_create_ultimate_structure",
-        {"topic": topic, "article_text": json.dumps(all_structures, indent=2)},
+        {"topic": topic, "article_text": json.dumps(all_structures, indent=2, ensure_ascii=False)},
         variables_manager=variables_manager,
         stage_name="create_structure"
     )
@@ -320,6 +320,16 @@ async def basic_articles_pipeline(topic: str, publish_to_wordpress: bool = True,
             validation_level="minimal",  # Create structure uses minimal validation
             post_processor=_create_structure_post_processor  # JSON parsing with retry protection
         )
+
+        # Save request and response for debugging
+        if paths["ultimate_structure"]:
+            save_llm_interaction(
+                base_path=paths["ultimate_structure"],
+                stage_name="create_structure",
+                messages=messages,
+                response=json.dumps(ultimate_structure, ensure_ascii=False),
+                extra_params={"model": actual_model, "topic": topic}
+            )
 
         logger.info(f"✅ Successfully created ultimate structure with {actual_model}")
         save_artifact(ultimate_structure, paths["ultimate_structure"], "ultimate_structure.json")
@@ -675,7 +685,60 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
         from src.variables_manager import VariablesManager
         variables_manager = VariablesManager()
 
-    if stage == "fact_check":
+    if stage == "create_structure":
+        logger.info("═" * 67)
+        logger.info(" ЭТАП 7: Создание ультимативной структуры (запуск с этапа)")
+        logger.info("═" * 67)
+
+        # Load all_structures from 06_structure_extraction
+        structures_path = os.path.join(base_output_path, "06_structure_extraction", "all_structures.json")
+        if not os.path.exists(structures_path):
+            logger.error(f"Required file not found: {structures_path}")
+            logger.error("Run full pipeline first to extract structures from sources")
+            return
+
+        with open(structures_path, 'r', encoding='utf-8') as f:
+            all_structures = json.load(f)
+
+        logger.info(f"Loaded {len(all_structures)} structures from {structures_path}")
+
+        # Create ultimate structure
+        messages = _load_and_prepare_messages(
+            content_type,
+            "02_create_ultimate_structure",
+            {"topic": topic, "article_text": json.dumps(all_structures, indent=2, ensure_ascii=False)},
+            variables_manager=variables_manager,
+            stage_name="create_structure"
+        )
+
+        ultimate_structure, actual_model = make_llm_request(
+            stage_name="create_structure",
+            messages=messages,
+            temperature=0.3,
+            token_tracker=token_tracker,
+            base_path=paths["ultimate_structure"],
+            validation_level="minimal",
+            post_processor=_create_structure_post_processor
+        )
+
+        # Save request and response for debugging
+        if paths["ultimate_structure"]:
+            save_llm_interaction(
+                base_path=paths["ultimate_structure"],
+                stage_name="create_structure",
+                messages=messages,
+                response=json.dumps(ultimate_structure, ensure_ascii=False),
+                extra_params={"model": actual_model, "topic": topic}
+            )
+
+        save_artifact(ultimate_structure, paths["ultimate_structure"], "ultimate_structure.json")
+        logger.info(f"✅ Structure creation completed successfully with {actual_model}")
+
+        # Show token statistics
+        token_summary = token_tracker.get_session_summary()
+        logger.info(f"Tokens used in this stage: {token_summary['session_summary']['total_tokens']}")
+
+    elif stage == "fact_check":
         logger.info("═" * 67)
         logger.info(" ЭТАП 10: Fact-checking (запуск с этапа)")
         logger.info("═" * 67)
@@ -983,7 +1046,7 @@ async def run_single_stage(topic: str, stage: str, content_type: str = "basic_ar
 
     else:
         logger.error(f"Stage '{stage}' not implemented yet")
-        logger.info("Available stages: fact_check, link_placement, editorial_review, publication")
+        logger.info("Available stages: create_structure, generate_article, translation, fact_check, link_placement, editorial_review, publication")
 
 async def main_flow(topic: str, model_overrides: Dict = None, publish_to_wordpress: bool = True, content_type: str = "basic_articles", verbose: bool = False, variables_manager=None):
     """Async wrapper function for batch processor compatibility"""
@@ -996,7 +1059,7 @@ if __name__ == "__main__":
                        default='basic_articles', help='Type of content to generate')
     parser.add_argument('--skip-publication', action='store_true',
                        help='Skip WordPress publication')
-    parser.add_argument('--start-from-stage', choices=['generate_article', 'translation', 'fact_check', 'link_placement', 'editorial_review', 'publication'],
+    parser.add_argument('--start-from-stage', choices=['create_structure', 'generate_article', 'translation', 'fact_check', 'link_placement', 'editorial_review', 'publication'],
                        help='Start pipeline from specific stage (requires existing output folder)')
     parser.add_argument('--verbose', action='store_true',
                        help='Show detailed debug logs (default: show only key events)')

@@ -49,13 +49,13 @@ LLM_MODELS = {
 ### Fallback модели:
 ```python
 FALLBACK_MODELS = {
-    "extract_sections": "google/gemini-2.5-flash-lite-preview-06-17",
-    "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",
-    "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",
+    "extract_sections": "google/gemini-2.0-flash-001",
+    "create_structure": "google/gemini-2.0-flash-001",
+    "generate_article": "google/gemini-2.0-flash-001",
     "fact_check": "gemini-2.5-flash",                                   # Stable Gemini 2.5 Flash with web search
     "link_placement": "gemini-2.5-flash",                               # Stable Gemini 2.5 Flash with web search
-    "translation": "google/gemini-2.5-flash-lite-preview-06-17",        # Fallback для перевода
-    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback для редакторской правки
+    "translation": "google/gemini-2.0-flash-001",                       # Fallback для перевода
+    "editorial_review": "google/gemini-2.0-flash-001",                  # Fallback для редакторской правки
 }
 ```
 
@@ -316,7 +316,7 @@ LLM_PROVIDERS = {
         "models": [
             "openai/gpt-4o",
             "openai/gpt-4o-mini",
-            "google/gemini-2.5-flash-lite-preview-06-17",
+            "google/gemini-2.0-flash-001",
             "deepseek/deepseek-chat-v3.1:free"
         ]
     }
@@ -429,7 +429,7 @@ python3 batch_processor.py topics.txt --generate-model "deepseek-reasoner"
 python3 batch_processor.py topics.txt \
     --extract-model "openai/gpt-4o" \
     --generate-model "deepseek-reasoner" \
-    --editorial-model "google/gemini-2.5-flash-lite-preview-06-17"
+    --editorial-model "google/gemini-2.0-flash-001"
 
 # Комбинирование всех опций
 python3 batch_processor.py topics_guides.txt \

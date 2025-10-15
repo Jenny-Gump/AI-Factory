@@ -185,7 +185,7 @@ Section 7: 30s  → Wait 30s
 
 **Configuration**:
 - Primary model: `deepseek-reasoner`
-- Fallback model: `google/gemini-2.5-flash-lite-preview-06-17`
+- Fallback model: `google/gemini-2.0-flash-001`
 - Timeout: 600s per section
 - Validation: v3.0
 
@@ -277,7 +277,7 @@ LLM_MODELS = {
 }
 
 FALLBACK_MODELS = {
-    "generate_article": "google/gemini-2.5-flash-lite-preview-06-17"
+    "generate_article": "google/gemini-2.0-flash-001"
 }
 ```
 

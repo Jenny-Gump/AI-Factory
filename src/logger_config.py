@@ -83,6 +83,8 @@ class QuietModeFilter(logging.Filter):
             "🎯",  # Editorial review plan
             "🤖",  # Model attempt logs
             "📝",  # Editorial review attempt
+            "Prompt:",  # Token data lines
+            "TOTAL:",  # Token totals
             "═══",  # Разделители этапов
             "ЭТАП",  # Заголовки этапов
             "Section ",  # Компактный формат секций

@@ -1,14 +1,9 @@
-Introspection of Thought Prompting — technique guide, template, best practices
-Automated Prompt Optimization — technique guide, template, best practices
-Multimodal Adaptive Prompting — technique guide, template, best practices
 Prompt Chaining Workflow — technique guide, template, best practices
 Retriever-Augmented Prompting (RAG) — technique guide, template, best practices
-Structured Output Prompting (JSON/XML/YAML) — technique guide, template, best practices
 Self-Verification / Double-Check Prompting — technique guide, template, best practices
 Dynamic Context Adaptation Prompting — technique guide, template, best practices
 Domain-Specific Prompt Engineering — technique guide, template, best practices
 Feedback-Loop Optimization Prompting — technique guide, template, best practices
 Safety-Aware Prompting (Injection-Resistant Design) — technique guide, template, best practices
 Meta-Prompting (Prompt that Designs Prompts) — technique guide, template, best practices
-Few-Shot + Retrieval Hybrid Prompting — technique guide, template, best practices
-Programmatic Prompt Composition (via code or agents) — technique guide, template, best practices
+Introspection of Thought Prompting — technique guide, template, research, best practices

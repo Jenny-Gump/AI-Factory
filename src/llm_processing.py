@@ -980,6 +980,9 @@ async def _generate_single_section_async(section: Dict, idx: int, topic: str,
     try:
         logger.info(f"🔄 Generating section {idx}: {section_title}")
 
+        # Extract estimated_length for explicit use in prompt
+        estimated_length = section.get('estimated_length (symbols)')
+
         # Prepare section-specific prompt
         messages = _load_and_prepare_messages(
             content_type,
@@ -987,7 +990,8 @@ async def _generate_single_section_async(section: Dict, idx: int, topic: str,
             {
                 "topic": topic,
                 "section_title": section.get("section_title", ""),
-                "section_structure": json.dumps(section, indent=2, ensure_ascii=False)
+                "section_structure": json.dumps(section, indent=2, ensure_ascii=False),
+                "estimated_length": estimated_length
             }
         )
 
@@ -1128,6 +1132,9 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
 
         # No outer retry loop - make_llm_request() handles all retries internally (6 attempts total)
         try:
+            # Extract estimated_length for explicit use in prompt
+            estimated_length = section.get('estimated_length (symbols)')
+
             # Prepare section-specific prompt with ready_sections context
             messages = _load_and_prepare_messages(
                 content_type,
@@ -1136,6 +1143,7 @@ def generate_article_by_sections(structure: List[Dict], topic: str, base_path: s
                     "topic": topic,
                     "section_title": section.get("section_title", ""),
                     "section_structure": json.dumps(section, indent=2, ensure_ascii=False),
+                    "estimated_length": estimated_length,
                     "ready_sections": ready_sections
                 },
                 variables_manager=variables_manager,

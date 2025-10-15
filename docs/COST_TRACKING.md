@@ -121,7 +121,7 @@ All pricing data has been verified from official API documentation.
 
 | Model | Input Cost | Output Cost | Notes |
 |-------|------------|-------------|-------|
-| **google/gemini-2.5-flash-lite-preview-06-17** | $0.10/1M | $0.40/1M | Lowest cost option |
+| **google/gemini-2.0-flash-001** | $0.10/1M | $0.40/1M | Faster TTFT, enhanced coding, multimodal |
 | **openai/gpt-5** | $1.25/1M | $10.00/1M | Available for override |
 
 ---
@@ -672,7 +672,7 @@ print(f"Calculated: ${result['total_cost']:.6f}")
 2. deepseek-chat
 3. gemini-2.5-flash
 4. gemini-2.5-pro
-5. google/gemini-2.5-flash-lite-preview-06-17
+5. google/gemini-2.0-flash-001
 6. openai/gpt-5
 
 ---

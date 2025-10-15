@@ -50,13 +50,14 @@
       "notes": "Google Gemini 2.5 Pro with length-based pricing. Short: ≤200K tokens, Long: >200K tokens.",
       "pricing_model": "length_tiered"
     },
-    "google/gemini-2.5-flash-lite-preview-06-17": {
+    "google/gemini-2.0-flash-001": {
       "provider": "openrouter",
       "input_cost": 0.10,
       "output_cost": 0.40,
       "supports_cache": false,
       "supports_grounding": false,
-      "notes": "Google Gemini 2.5 Flash Lite preview via OpenRouter - lowest cost option for simple tasks.",
+      "supports_multimodal": true,
+      "notes": "Google Gemini 2.0 Flash via OpenRouter - faster TTFT, enhanced coding capabilities, multimodal support.",
       "pricing_model": "flat_rate"
     },
     "openai/gpt-5": {

@@ -52,22 +52,22 @@ WORDPRESS_STATUS = os.getenv("WORDPRESS_STATUS", "draft")
 LLM_MODELS = {
     "extract_sections": "deepseek-chat",                                # DeepSeek Chat for section extraction
     "create_structure": "deepseek-reasoner",                            # DeepSeek Reasoner for structure creation
-    "generate_article": "deepseek-reasoner",                            # DeepSeek Reasoner for article generation
+    "generate_article": "google/gemini-2.0-flash-001",                  # Google Gemini 2.0 Flash for article generation
     "fact_check": "gemini-2.5-flash",                                   # Google Gemini 2.5 Flash (stable) with native web search for fact-checking
     "link_placement": "gemini-2.5-flash",                               # Google Gemini 2.5 Flash (stable) with native web search for finding relevant links
-    "translation": "google/gemini-2.5-flash-lite-preview-06-17",        # Google Gemini 2.5 Flash Lite for translation
+    "translation": "google/gemini-2.0-flash-001",                        # Google Gemini 2.0 Flash for translation
     "editorial_review": "deepseek-reasoner",                            # DeepSeek Reasoner for editorial review
 }
 
 # Fallback models for each stage (used when primary model fails)
 FALLBACK_MODELS = {
-    "extract_sections": "google/gemini-2.5-flash-lite-preview-06-17",    # Fallback to Gemini 2.5
-    "create_structure": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
-    "generate_article": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
+    "extract_sections": "google/gemini-2.0-flash-001",                   # Fallback to Gemini 2.0 Flash
+    "create_structure": "google/gemini-2.0-flash-001",                  # Fallback to Gemini 2.0 Flash
+    "generate_article": "deepseek-reasoner",                            # Fallback to DeepSeek Reasoner
     "fact_check": "gemini-2.5-pro",                                     # Gemini 2.5 Pro with enhanced grounding and larger context
     "link_placement": "gemini-2.5-pro",                                 # Gemini 2.5 Pro with enhanced grounding and larger context
     "translation": "deepseek-reasoner",                                 # Fallback to DeepSeek Reasoner
-    "editorial_review": "google/gemini-2.5-flash-lite-preview-06-17",   # Fallback to Gemini 2.5
+    "editorial_review": "google/gemini-2.0-flash-001",                  # Fallback to Gemini 2.0 Flash
 }
 
 # Retry configuration for LLM requests
@@ -109,7 +109,7 @@ LLM_PROVIDERS = {
         "api_key_env": "OPENROUTER_API_KEY",
         "models": [
             "openai/gpt-5",
-            "google/gemini-2.5-flash-lite-preview-06-17"
+            "google/gemini-2.0-flash-001"
         ],
         "extra_headers": {
             "HTTP-Referer": "https://github.com/your-repo/content-generator",

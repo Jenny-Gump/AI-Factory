@@ -160,7 +160,7 @@ class LLMProviderRouter:
         Call OpenRouter API.
 
         OpenRouter supports:
-        - Google Gemini models (google/gemini-2.5-flash-lite-preview-06-17)
+        - Google Gemini models (google/gemini-2.0-flash-001)
         - Various free and paid models with unified API
 
         Args:
